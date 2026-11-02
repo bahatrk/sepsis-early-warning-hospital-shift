@@ -1,0 +1,26 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Sepsis Erken Uyarı Prototipi</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>body{font-family:system-ui,sans-serif;max-width:860px;margin:2rem auto;padding:0 1rem}
+.uyari{background:#fff3cd;padding:.6rem 1rem;border-radius:6px}canvas{margin-top:1rem}</style></head><body>
+<h1>Sepsis Erken Uyarı Prototipi</h1>
+<p class="uyari">Araştırma prototipidir; klinik tanı veya tedavi kararı için kullanılamaz.</p>
+<p>Bir hasta kaydı (.psv) yükleyin; model her saat için sepsis riskini ve alarm noktalarını gösterir.</p>
+<input type="file" id="dosya" accept=".psv,.txt,.csv"> <button onclick="gonder()">Tahmin et</button>
+<p id="ozet"></p><canvas id="grafik" height="120"></canvas>
+<script>
+let g;
+async function gonder(){
+  const f=document.getElementById('dosya').files[0]; if(!f){alert('Önce bir .psv dosyası seçin');return;}
+  const fd=new FormData(); fd.append('dosya',f);
+  const r=await fetch('/tahmin',{method:'POST',body:fd}); const d=await r.json();
+  if(!r.ok){document.getElementById('ozet').textContent='Hata: '+d.detail;return;}
+  document.getElementById('ozet').textContent = d.ilk_alarm_saati? ('İlk alarm: '+d.ilk_alarm_saati+'. saat'):'Alarm üretilmedi';
+  if(g) g.destroy();
+  g=new Chart(document.getElementById('grafik'),{type:'line',data:{labels:d.saat,datasets:[
+    {label:'Sepsis riski',data:d.risk,borderColor:'#1f77b4',pointRadius:0},
+    {label:'Alarm eşiği',data:d.saat.map(()=>d.esik),borderColor:'#999',borderDash:[6,4],pointRadius:0},
+    {label:'Alarm',data:d.risk.map((r,i)=>d.alarm[i]?r:null),showLine:false,borderColor:'#d62728',backgroundColor:'#d62728',pointRadius:5}]},
+    options:{scales:{x:{title:{display:true,text:'Saat'}},y:{title:{display:true,text:'Risk'}}}}});
+}
+</script></body></html>

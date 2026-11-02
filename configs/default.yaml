@@ -1,0 +1,17 @@
+seed: 42
+paths:
+  raw_dir: ~/sepsis_s3            # PhysioNet 2019 ham .psv dosyaları (depoya konmaz)
+  split_csv: splits/bolme.csv
+  processed_dir: data/processed   # ön işlenmiş .npz (depoya konmaz)
+  artifacts_dir: artifacts        # eğitilmiş modeller (depoya konmaz)
+  results_dir: results
+split:
+  source_val_test_fraction: 0.30  # kaynak: %70 eğitim, kalan %30 yarı yarıya doğrulama / kaynak-içi test
+  target_test_fraction: 0.70      # hedef: %30 adaptasyon (etiketsiz), %70 test
+preprocess:
+  use_iculos: true                # ablasyon için false
+  clip: 5.0
+lr:
+  c_grid: [0.0001, 0.001, 0.01, 0.1, 1.0, 10.0]
+  max_iter: 3000
+  alarm_rate: 0.05                # doğrulama saatlerinin bu oranı alarm üretecek şekilde eşik

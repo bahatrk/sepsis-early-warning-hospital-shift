@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sepsis-shift"
+version = "0.1.0"
+description = "Sepsis early warning under hospital distribution shift (PhysioNet/CinC 2019)"
+requires-python = ">=3.10"
+dependencies = ["numpy", "pandas", "scikit-learn", "matplotlib", "joblib", "pyyaml",
+                "fastapi", "uvicorn", "python-multipart"]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sepsis = ["api/static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

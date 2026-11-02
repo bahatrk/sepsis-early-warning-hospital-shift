@@ -1,4 +1,8 @@
-veri/
-sonuclar/*.png
-__pycache__/
+data/
+artifacts/
 *.npz
+__pycache__/
+*.egg-info/
+.pytest_cache/
+venv/
+.venv/
