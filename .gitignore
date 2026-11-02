@@ -1,0 +1,4 @@
+veri/
+sonuclar/*.png
+__pycache__/
+*.npz
