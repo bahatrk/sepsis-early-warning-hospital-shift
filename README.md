@@ -9,10 +9,10 @@ Atatürk Üniversitesi, İngilizce Bilgisayar Mühendisliği — bitirme projesi
 ├── configs/default.yaml     # tüm yollar ve parametreler (tek yapılandırma kaynağı)
 ├── src/sepsis/              # kurulabilir paket
 │   ├── data/                #   loader, hasta düzeyinde bölme, ön işleme (tek kaynak)
-│   ├── models/              #   lr.py (baseline); gru.py ve özgün model eklenecek
+│   ├── models/              #   lr.py, gru.py (baseline'lar); özgün model eklenecek
 │   ├── evaluation/          #   metrikler
 │   └── api/                 #   FastAPI uygulaması + basit arayüz
-├── scripts/                 # ince komutlar: 01_make_split, 02_preprocess, 03_train_lr
+├── scripts/                 # ince komutlar: 01_make_split, 02_preprocess, 03_train_lr, 04_train_gru
 ├── tests/                   # pytest: kesişim yok, nedensellik, API
 ├── splits/bolme.csv         # dondurulmuş hasta bölmesi (depoda)
 ├── results/                 # küçük çıktılar: JSON, grafikler (depoda)
@@ -29,6 +29,7 @@ make install                  # paketi kur
 make split                    # 1) bölme (dondurulmuşsa yalnızca kesişim kontrolü)
 make preprocess               # 2) ön işleme (parametreler yalnızca eğitim hastalarından)
 make train                    # 3) LR baseline: eğitim/doğrulama/test + öğrenme eğrisi
+make train-gru                # 4) GRU baseline (nedensel, tek yönlü): eğitim/doğrulama/test + epoch öğrenme eğrisi
 make api                      # web uygulaması: http://127.0.0.1:8000
 make test                     # birim testleri (gerçek veri gerekmez)
 ```

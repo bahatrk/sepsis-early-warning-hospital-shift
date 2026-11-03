@@ -15,3 +15,13 @@ lr:
   c_grid: [0.0001, 0.001, 0.01, 0.1, 1.0, 10.0]
   max_iter: 3000
   alarm_rate: 0.05                # doğrulama saatlerinin bu oranı alarm üretecek şekilde eşik
+gru:
+  hidden: 64
+  layers: 1
+  dropout: 0.2
+  lr: 0.001
+  weight_decay: 0.0001
+  batch_size: 64              # hasta sayısı
+  max_epochs: 30
+  patience: 5                 # doğrulama AUPRC'si iyileşmezse durdur
+  threads: 8
