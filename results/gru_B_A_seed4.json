@@ -1,0 +1,96 @@
+{
+ "yon": "B->A",
+ "seed": 4,
+ "gru": {
+  "hidden": 64,
+  "layers": 1,
+  "dropout": 0.2,
+  "lr": 0.001,
+  "weight_decay": 0.0001
+ },
+ "gecmis": [
+  {
+   "epoch": 1,
+   "train_loss": 1.137835520673882,
+   "train_auprc": 0.10362293581927633,
+   "val_auprc": 0.09192126604421322,
+   "val_auroc": 0.8305893888144742
+  },
+  {
+   "epoch": 2,
+   "train_loss": 1.0631108908590194,
+   "train_auprc": 0.11881744863214809,
+   "val_auprc": 0.10196938437209324,
+   "val_auroc": 0.8449054448744268
+  },
+  {
+   "epoch": 3,
+   "train_loss": 1.01964664469321,
+   "train_auprc": 0.12394428752048746,
+   "val_auprc": 0.11330470561924492,
+   "val_auroc": 0.8533087686521236
+  },
+  {
+   "epoch": 4,
+   "train_loss": 0.9745187773139158,
+   "train_auprc": 0.13961973133474626,
+   "val_auprc": 0.12936974069574425,
+   "val_auroc": 0.8573860274653127
+  },
+  {
+   "epoch": 5,
+   "train_loss": 0.9564887288410135,
+   "train_auprc": 0.14001222284348822,
+   "val_auprc": 0.1159210882563279,
+   "val_auroc": 0.8420977568112935
+  },
+  {
+   "epoch": 6,
+   "train_loss": 0.9246029107838762,
+   "train_auprc": 0.15309549105419676,
+   "val_auprc": 0.12340986024769396,
+   "val_auroc": 0.8505793790365703
+  },
+  {
+   "epoch": 7,
+   "train_loss": 0.9133270690779357,
+   "train_auprc": 0.16214861620205348,
+   "val_auprc": 0.12420518364066296,
+   "val_auroc": 0.8534393206490558
+  },
+  {
+   "epoch": 8,
+   "train_loss": 0.9036487208952224,
+   "train_auprc": 0.16818519285986866,
+   "val_auprc": 0.11922406091128415,
+   "val_auroc": 0.8426687085779543
+  },
+  {
+   "epoch": 9,
+   "train_loss": 0.8795675235222377,
+   "train_auprc": 0.17640615057646736,
+   "val_auprc": 0.11756105694594984,
+   "val_auroc": 0.851217597764
+  }
+ ],
+ "egitim": {
+  "AUROC": 0.863,
+  "AUPRC": 0.1396,
+  "pozitif_orani": 0.0142
+ },
+ "dogrulama": {
+  "AUROC": 0.8574,
+  "AUPRC": 0.1294,
+  "pozitif_orani": 0.0141
+ },
+ "kaynak_ici_test": {
+  "AUROC": 0.8315,
+  "AUPRC": 0.1521,
+  "pozitif_orani": 0.014
+ },
+ "hedef_test": {
+  "AUROC": 0.7504,
+  "AUPRC": 0.0816,
+  "pozitif_orani": 0.0217
+ }
+}

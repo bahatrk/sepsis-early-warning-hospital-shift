@@ -1,4 +1,4 @@
-.PHONY: install split preprocess train train-gru api test
+.PHONY: install split preprocess train train-gru train-gru-seeds api test
 install:        ## paketi geliştirme kipinde kur
 	pip install -e ".[dev]"
 split:          ## 1) hasta düzeyinde bölme + kesişim kontrolü
@@ -9,6 +9,8 @@ train:          ## 3) LR baseline (iki yön)
 	python scripts/03_train_lr.py "A->B" && python scripts/03_train_lr.py "B->A"
 train-gru:      ## 4) GRU baseline (iki yön; seed 0)
 	python scripts/04_train_gru.py "A->B" && python scripts/04_train_gru.py "B->A"
+train-gru-seeds: ## 5) GRU 5 seed + ortalama ± std özeti (results/gru_ozet.md)
+	python scripts/05_gru_seeds.py
 api:            ## web uygulaması: http://127.0.0.1:8000
 	uvicorn sepsis.api.main:app --reload
 test:           ## birim testleri (gerçek veri gerekmez)

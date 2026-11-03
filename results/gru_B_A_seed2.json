@@ -1,0 +1,103 @@
+{
+ "yon": "B->A",
+ "seed": 2,
+ "gru": {
+  "hidden": 64,
+  "layers": 1,
+  "dropout": 0.2,
+  "lr": 0.001,
+  "weight_decay": 0.0001
+ },
+ "gecmis": [
+  {
+   "epoch": 1,
+   "train_loss": 1.1324428323525741,
+   "train_auprc": 0.09942888261231642,
+   "val_auprc": 0.08324071827388246,
+   "val_auroc": 0.8199714053600012
+  },
+  {
+   "epoch": 2,
+   "train_loss": 1.0320019393425894,
+   "train_auprc": 0.11812466075213979,
+   "val_auprc": 0.09906533606840855,
+   "val_auroc": 0.8395615110082393
+  },
+  {
+   "epoch": 3,
+   "train_loss": 1.0215756028518055,
+   "train_auprc": 0.12498296159085438,
+   "val_auprc": 0.09941338345480438,
+   "val_auroc": 0.8431147196136115
+  },
+  {
+   "epoch": 4,
+   "train_loss": 0.9930378861647792,
+   "train_auprc": 0.13745660120009465,
+   "val_auprc": 0.10793572199183506,
+   "val_auroc": 0.8550686183042573
+  },
+  {
+   "epoch": 5,
+   "train_loss": 0.9637635144835156,
+   "train_auprc": 0.1441205860516228,
+   "val_auprc": 0.11834074231077783,
+   "val_auroc": 0.8454686211077068
+  },
+  {
+   "epoch": 6,
+   "train_loss": 0.9462789102488544,
+   "train_auprc": 0.14917110941209438,
+   "val_auprc": 0.11221467412578623,
+   "val_auroc": 0.8496778702141046
+  },
+  {
+   "epoch": 7,
+   "train_loss": 0.929641940719479,
+   "train_auprc": 0.15066846590102334,
+   "val_auprc": 0.11004500998244947,
+   "val_auroc": 0.840524951176255
+  },
+  {
+   "epoch": 8,
+   "train_loss": 0.8980157491079602,
+   "train_auprc": 0.16732921196153214,
+   "val_auprc": 0.11411567774522796,
+   "val_auroc": 0.8521702684498397
+  },
+  {
+   "epoch": 9,
+   "train_loss": 0.8896446732757864,
+   "train_auprc": 0.16894900218471562,
+   "val_auprc": 0.11555503587620919,
+   "val_auroc": 0.8471270094650156
+  },
+  {
+   "epoch": 10,
+   "train_loss": 0.8640127710273231,
+   "train_auprc": 0.18652733621849887,
+   "val_auprc": 0.11042314389652633,
+   "val_auroc": 0.8529707690271614
+  }
+ ],
+ "egitim": {
+  "AUROC": 0.8641,
+  "AUPRC": 0.1441,
+  "pozitif_orani": 0.0142
+ },
+ "dogrulama": {
+  "AUROC": 0.8455,
+  "AUPRC": 0.1183,
+  "pozitif_orani": 0.0141
+ },
+ "kaynak_ici_test": {
+  "AUROC": 0.828,
+  "AUPRC": 0.1491,
+  "pozitif_orani": 0.014
+ },
+ "hedef_test": {
+  "AUROC": 0.7428,
+  "AUPRC": 0.0781,
+  "pozitif_orani": 0.0217
+ }
+}
