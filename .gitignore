@@ -1,5 +1,5 @@
-data/
-artifacts/
+/data/
+/artifacts/
 *.npz
 __pycache__/
 *.egg-info/
