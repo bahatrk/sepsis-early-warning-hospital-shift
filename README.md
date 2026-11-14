@@ -42,6 +42,7 @@ make test                     # birim testleri (gerçek veri gerekmez)
 |---|---|
 | `gru` | nedensel GRU, 108 özniteliğin hepsi (baz) |
 | `gru_ozelliksiz` | aynı GRU, "gözlendi" ve "son ölçüm süresi" sütunları çıkarılmış (40 öznitelik) |
+| `gru_maskdrop` | baz GRU + eğitimde eksiklik göstergelerini hasta bazında %50 olasılıkla sıfırlama (deneysel; yalnızca eğitimde) |
 | `grud` | **önerilen model**: GRU-D tarzı eksiklik farkındalıklı kodlayıcı (girdi + gizli durum çürümesi) |
 | `grud_decaysiz` | `grud`'un çürüme mekanizmaları kapalı hali |
 

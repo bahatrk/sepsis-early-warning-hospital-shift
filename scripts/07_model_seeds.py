@@ -9,7 +9,7 @@ from sepsis.config import load_config, direction_slug
 from sepsis.evaluation.seeds import summarize_model, models_to_markdown
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--models", nargs="+", default=["gru", "grud"], choices=["gru", "gru_ozelliksiz", "grud", "grud_decaysiz"])
+ap.add_argument("--models", nargs="+", default=["gru", "grud"], choices=["gru", "gru_ozelliksiz", "gru_maskdrop", "grud", "grud_decaysiz"])
 ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4])
 ap.add_argument("--yonler", nargs="+", default=["A->B", "B->A"], choices=["A->B", "B->A"])
 ap.add_argument("--device", default=None); ap.add_argument("--sadece-ozet", action="store_true")

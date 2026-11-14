@@ -3,6 +3,7 @@
 Modeller:
   gru            nedensel GRU, 108 özniteliğin hepsi (baz; scripts/04 ile aynı model)
   gru_ozelliksiz nedensel GRU, "gözlendi" ve "son ölçüm süresi" sütunları ÇIKARILMIŞ (40 öznitelik) -- ablasyon
+  gru_maskdrop   baz GRU + eğitimde eksiklik göstergelerini (gözlendi, son ölçüm süresi) hasta bazında p olasılıkla sıfırlama (--mask-drop, varsayılan 0.5)
   grud           GRU-D tarzı eksiklik farkındalıklı kodlayıcı (girdi + gizli durum çürümesi) -- ÖNERİLEN MODEL
   grud_decaysiz  grud'un çürüme mekanizmaları kapalı hali -- ablasyon
 
@@ -19,11 +20,12 @@ from sepsis.evaluation import report as R
 from sepsis.models.gru import CausalGRU, train_model, predict
 from sepsis.models.grud import GRUD, grud_indices
 
-MODELLER = ["gru", "gru_ozelliksiz", "grud", "grud_decaysiz"]
+MODELLER = ["gru", "gru_ozelliksiz", "gru_maskdrop", "grud", "grud_decaysiz"]
 KUMELER = ["egitim", "dogrulama", "kaynak_ici_test", "hedef_test"]
 
 ap = argparse.ArgumentParser(); ap.add_argument("direction", choices=["A->B", "B->A"])
 ap.add_argument("--model", choices=MODELLER, required=True); ap.add_argument("--seed", type=int, default=0)
+ap.add_argument("--mask-drop", type=float, default=0.5, help="yalnızca gru_maskdrop: gösterge sütunlarını bırakma olasılığı")
 ap.add_argument("--device", default=None, help="cpu | cuda (varsayılan: config'teki train.device, yoksa cpu)")
 args = ap.parse_args()
 cfg = load_config(); slug = direction_slug(args.direction)
@@ -32,6 +34,7 @@ if device == "cuda" and not torch.cuda.is_available():
     print("UYARI: cuda yok, cpu kullanılıyor."); device = "cpu"
 alarm = float(cfg.get("report", {}).get("alarm_rate", 0.05))
 H = dict(cfg["grud"] if args.model.startswith("grud") else cfg["gru"]); H["alarm_rate"] = alarm
+if args.model == "gru_maskdrop": H["mask_drop"] = args.mask_drop
 if device == "cpu": torch.set_num_threads(H.get("threads", os.cpu_count() or 1))
 
 # --- sızıntı kontrolü eğitimden ÖNCE: kümeler arasında ortak hasta olmamalı ---
@@ -52,14 +55,15 @@ if args.model == "gru_ozelliksiz":
 else:
     keep = list(range(len(names))); noise_idx = torch.tensor(idx["deger"])
 n_features = seqs["egitim"][0][0].shape[1]
-if args.model in ("gru", "gru_ozelliksiz"):
+if args.model in ("gru", "gru_ozelliksiz", "gru_maskdrop"):
     make = lambda: CausalGRU(n_features, H["hidden"], H["layers"], H["dropout"])
 else:
     dec = args.model == "grud"
     make = lambda: GRUD(idx, H["hidden"], H["dropout"], decay_x=dec, decay_h=dec)
 
 print(f"[{args.model}] {args.direction} seed {args.seed} | cihaz {device} | öznitelik {n_features}")
-model, hist = train_model(make, seqs["egitim"], seqs["dogrulama"], H, args.seed, device, noise_idx)
+model, hist = train_model(make, seqs["egitim"], seqs["dogrulama"], H, args.seed, device, noise_idx,
+                          mask_idx=torch.tensor(idx["maske"] + idx["delta"]))
 
 # --- tahminler: test kümeleri model seçildikten SONRA, bir kez ---
 preds = {}
