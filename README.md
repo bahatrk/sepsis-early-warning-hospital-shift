@@ -30,9 +30,26 @@ make split                    # 1) bölme (dondurulmuşsa yalnızca kesişim kon
 make preprocess               # 2) ön işleme (parametreler yalnızca eğitim hastalarından)
 make train                    # 3) LR baseline: eğitim/doğrulama/test + öğrenme eğrisi
 make train-gru                # 4) GRU baseline (nedensel, tek yönlü): eğitim/doğrulama/test + epoch öğrenme eğrisi
+make train-model              # 6) tek model/yön/tohum + tüm raporlar:  make train-model MODEL=grud YON="A->B" SEED=0
+make train-model-seeds        # 7) çoklu tohum + ortalama ± std özeti (results/modeller/ozet.md)
 make api                      # web uygulaması: http://127.0.0.1:8000
 make test                     # birim testleri (gerçek veri gerekmez)
 ```
+
+## Modeller ve ablasyon (`scripts/06_train_model.py`)
+
+| Model | Açıklama |
+|---|---|
+| `gru` | nedensel GRU, 108 özniteliğin hepsi (baz) |
+| `gru_ozelliksiz` | aynı GRU, "gözlendi" ve "son ölçüm süresi" sütunları çıkarılmış (40 öznitelik) |
+| `grud` | **önerilen model**: GRU-D tarzı eksiklik farkındalıklı kodlayıcı (girdi + gizli durum çürümesi) |
+| `grud_decaysiz` | `grud`'un çürüme mekanizmaları kapalı hali |
+
+Baz GRU eksiklik göstergelerini düz öznitelik olarak zaten görür; `grud`'un farkı eksikliğin modelin içinde kullanılma biçimidir.
+Her çalıştırma `results/modeller/<model>_<yon>_seed<s>/` içine eğitim/doğrulama eğrilerini (kayıp, accuracy, AUROC, AUPRC; aynı grafikte),
+ROC ve PR eğrilerini, karışıklık matrislerini, sınıf bazında precision/recall/F1 raporunu, eğitim/doğrulama/test tablosunu ve kümeler
+arası kesişim kontrolünü yazar. Sınıflandırma eşiği yalnızca doğrulama saatlerinin %5'i alarm verecek şekilde seçilir; test kümelerine bir kez bakılır.
+Varsayılan cihaz CPU'dur (`train.device`); GPU için config'de `cuda` yapın.
 
 ## Sızıntı ve aşırı öğrenme kontrolleri
 
@@ -43,7 +60,8 @@ make test                     # birim testleri (gerçek veri gerekmez)
 | Ölçekleme/doldurma parametreleri yalnızca eğitimden | `data/preprocess.py::fit_params`, `tests/test_preprocess.py` |
 | Yalnızca geçmiş saatler (nedensel) | `tests/test_preprocess.py::test_transform_is_causal` |
 | Hiperparametre yalnızca doğrulamada; test bir kez | `models/lr.py`, `scripts/03_train_lr.py` |
-| Eğitim, doğrulama ve test birlikte raporlanır | `results/lr_*.json` |
+| Eğitim, doğrulama ve test birlikte raporlanır | `results/lr_*.json`, `results/modeller/*/tablo.md` |
+| Kesişim kontrolü her eğitimden önce çalışır | `scripts/06_train_model.py`, `evaluation/report.py::intersection_report` |
 
 ## Sonuçlar (LR baseline, saat düzeyi)
 

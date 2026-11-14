@@ -25,3 +25,18 @@ gru:
   max_epochs: 30
   patience: 5                 # doğrulama AUPRC'si iyileşmezse durdur
   threads: 8
+grud:                          # GRU-D tarzı model (önerilen) ve ablasyonu; gru ile aynı eğitim ayarları
+  hidden: 64
+  dropout: 0.2
+  lr: 0.001
+  weight_decay: 0.0001
+  batch_size: 64
+  max_epochs: 30
+  patience: 5
+  noise_std: 0.0               # veri artırma: yalnızca eğitimde, değer sütunlarına Gauss gürültüsü (0 = kapalı)
+  gap_limit: null              # örn. 0.05: eğitim-doğrulama AUPRC farkı bunu aşan epoch en iyi seçilmez (yalnızca doğrulamaya dayanır)
+  threads: 8
+train:
+  device: cpu                  # cpu | cuda. Eski GRU sonuçları cpu ile üretildi; Colab'de colab.yaml'da cuda yapılır
+report:
+  alarm_rate: 0.05             # sınıflandırma raporu / karışıklık matrisi eşiği: doğrulama saatlerinin %5'i alarm
