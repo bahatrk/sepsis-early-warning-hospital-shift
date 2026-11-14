@@ -42,6 +42,7 @@ make test                     # birim testleri (gerçek veri gerekmez)
 |---|---|
 | `gru` | nedensel GRU, 108 özniteliğin hepsi (baz) |
 | `gru_ozelliksiz` | aynı GRU, "gözlendi" ve "son ölçüm süresi" sütunları çıkarılmış (40 öznitelik) |
+| `gru_maskdrop` | baz GRU + eğitimde eksiklik göstergelerini hasta bazında %50 olasılıkla sıfırlama (deneysel; yalnızca eğitimde) |
 | `grud` | **önerilen model**: GRU-D tarzı eksiklik farkındalıklı kodlayıcı (girdi + gizli durum çürümesi) |
 | `grud_decaysiz` | `grud`'un çürüme mekanizmaları kapalı hali |
 
@@ -50,6 +51,9 @@ Her çalıştırma `results/modeller/<model>_<yon>_seed<s>/` içine eğitim/doğ
 ROC ve PR eğrilerini, karışıklık matrislerini, sınıf bazında precision/recall/F1 raporunu, eğitim/doğrulama/test tablosunu ve kümeler
 arası kesişim kontrolünü yazar. Sınıflandırma eşiği yalnızca doğrulama saatlerinin %5'i alarm verecek şekilde seçilir; test kümelerine bir kez bakılır.
 Varsayılan cihaz CPU'dur (`train.device`); GPU için config'de `cuda` yapın.
+
+`scripts/08_regularization_sweep.py` aşırı öğrenmeyi azaltmak için dropout, weight decay, `gap_limit` ve gürültü ayarlarını **yalnızca doğrulama kümesinde** tarar
+(test kümeleri yüklenmez); sonuçlar `results/tarama/` içine yazılır.
 
 ## Sızıntı ve aşırı öğrenme kontrolleri
 

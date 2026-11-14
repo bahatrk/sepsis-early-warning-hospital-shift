@@ -57,12 +57,14 @@ def _acc_at(y, p, thr):
     tp, tn = (pred & y).sum(), (~pred & ~y).sum(); pos, neg = y.sum(), (~y).sum()
     return float((tp + tn) / len(y)), float(0.5 * (tp / max(pos, 1) + tn / max(neg, 1)))
 
-def train_model(make_model, train, val, cfg, seed, device="cpu", noise_idx=None, verbose=True):
+def train_model(make_model, train, val, cfg, seed, device="cpu", noise_idx=None, verbose=True, mask_idx=None):
     """Ortak eğitim döngüsü. make_model(): torch modülü üretir (tohum burada sabitlenir, model oluşturulmadan önce).
     train/val: (X_list, y_list). Döndürür: en iyi doğrulama AUPRC'li model, epoch geçmişi.
 
     cfg anahtarları: lr, weight_decay, batch_size, max_epochs, patience, alarm_rate (varsayılan 0.05);
     isteğe bağlı: noise_std (yalnızca eğitimde, noise_idx sütunlarına Gauss gürültüsü; varsayılan 0),
+    mask_drop (olasılık p, mask_idx sütunları verilmişse: yalnızca eğitimde her hasta için bu sütunlar p olasılıkla
+    TÜM saatlerde sıfırlanır -- modelin hastaneye özgü ölçüm alışkanlığına bağımlılığını azaltmak için; varsayılan 0),
     gap_limit (varsa: eğitim-doğrulama AUPRC farkı bu sınırı aşan epoch'lar en iyi seçilmez; seçim yalnızca
     doğrulama bilgisine dayanır)."""
     torch.manual_seed(seed); rng = np.random.default_rng(seed)
@@ -71,6 +73,7 @@ def train_model(make_model, train, val, cfg, seed, device="cpu", noise_idx=None,
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     lossf = nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device), reduction="none")
     noise = float(cfg.get("noise_std", 0.0) or 0.0); gap_limit = cfg.get("gap_limit"); alarm = float(cfg.get("alarm_rate", 0.05))
+    mdrop = float(cfg.get("mask_drop", 0.0) or 0.0)
     best, best_state, wait, history, best_epoch = -1.0, None, 0, [], 0
     min_gap, gap_state, gap_epoch = float("inf"), None, 0                  # gap_limit hiçbir epoch'ta sağlanmazsa yedek
     for epoch in range(1, cfg["max_epochs"] + 1):
@@ -79,6 +82,9 @@ def train_model(make_model, train, val, cfg, seed, device="cpu", noise_idx=None,
             X, y, mask = X.to(device), y.to(device), mask.to(device)
             if noise > 0 and noise_idx is not None:                       # veri artırma: yalnızca eğitimde
                 X = X.clone(); X[..., noise_idx] += noise * torch.randn_like(X[..., noise_idx])
+            if mdrop > 0 and mask_idx is not None:                        # eksiklik göstergesi bırakma: yalnızca eğitimde
+                drop = (torch.rand(X.shape[0], 1, 1, device=X.device) < mdrop).float()
+                X = X.clone(); X[..., mask_idx] = X[..., mask_idx] * (1 - drop)
             opt.zero_grad()
             loss = (lossf(model(X), y) * mask).sum() / mask.sum()
             loss.backward(); nn.utils.clip_grad_norm_(model.parameters(), 1.0); opt.step()

@@ -67,3 +67,32 @@ def test_training_is_reproducible_with_same_seed():
     for _ in range(2):
         m, _ = train_model(lambda: GRUD(IDX, 8, 0.1), tr, va, cfg, 3, "cpu", verbose=False); ps.append(predict(m, *va)[1])
     assert np.allclose(ps[0], ps[1], atol=1e-7)
+
+
+class _Probe(torch.nn.Module):
+    """Eğitim/değerlendirme sırasında modele giren girdileri kaydeder."""
+    def __init__(self):
+        super().__init__(); self.lin = torch.nn.Linear(D, 1); self.train_x, self.eval_x = [], []
+    def forward(self, x):
+        (self.train_x if self.training else self.eval_x).append(x.detach().clone()); return self.lin(x).squeeze(-1)
+
+def test_mask_drop_zeroes_indicators_only_in_training():
+    rng = np.random.default_rng(0); tr, va = _data(30, rng), _data(15, rng)
+    cols = IDX["maske"] + IDX["delta"]
+    cfg = {"lr": 0.01, "weight_decay": 0.0, "batch_size": 10, "max_epochs": 1, "patience": 1, "mask_drop": 1.0}
+    holder = {}
+    def make(): holder["m"] = _Probe(); return holder["m"]
+    train_model(make, tr, va, cfg, 0, "cpu", verbose=False, mask_idx=torch.tensor(cols))
+    m = holder["m"]
+    assert all(float(x[..., cols].abs().sum()) == 0.0 for x in m.train_x)               # p=1: eğitimde hepsi sıfır
+    assert all(float(x[..., IDX["deger"]].abs().sum()) > 0 for x in m.train_x)           # değer sütunlarına dokunulmaz
+    assert any(float(x[..., cols].abs().sum()) > 0 for x in m.eval_x)                    # doğrulamada gösterge sütunları korunur
+
+def test_mask_drop_zero_keeps_results_identical():
+    rng = np.random.default_rng(0); tr, va = _data(30, rng), _data(15, rng)
+    cfg = {"lr": 0.01, "weight_decay": 0.0, "batch_size": 10, "max_epochs": 2, "patience": 2}
+    torch.set_num_threads(1); ps = []
+    for extra in ({}, {"mask_drop": 0.0}):
+        m, _ = train_model(lambda: GRUD(IDX, 8, 0.1), tr, va, {**cfg, **extra}, 3, "cpu", verbose=False,
+                           mask_idx=torch.tensor(IDX["maske"])); ps.append(predict(m, *va)[1])
+    assert np.allclose(ps[0], ps[1], atol=1e-7)
