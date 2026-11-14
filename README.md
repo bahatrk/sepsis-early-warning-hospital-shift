@@ -51,6 +51,9 @@ ROC ve PR eğrilerini, karışıklık matrislerini, sınıf bazında precision/r
 arası kesişim kontrolünü yazar. Sınıflandırma eşiği yalnızca doğrulama saatlerinin %5'i alarm verecek şekilde seçilir; test kümelerine bir kez bakılır.
 Varsayılan cihaz CPU'dur (`train.device`); GPU için config'de `cuda` yapın.
 
+`scripts/08_regularization_sweep.py` aşırı öğrenmeyi azaltmak için dropout, weight decay, `gap_limit` ve gürültü ayarlarını **yalnızca doğrulama kümesinde** tarar
+(test kümeleri yüklenmez); sonuçlar `results/tarama/` içine yazılır.
+
 ## Sızıntı ve aşırı öğrenme kontrolleri
 
 | Kontrol | Nerede |
