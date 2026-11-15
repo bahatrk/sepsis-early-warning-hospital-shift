@@ -34,7 +34,17 @@ def test_intersection_report_zero_and_detects_leak():
 
 def test_plots_write_files(tmp_path):
     y, p = _yp(); hist = [{"epoch": e, "train_loss_eval": 1 / e, "val_loss": 1 / e + .1, "train_acc": .9, "val_acc": .9,
-                           "train_auroc": .8, "val_auroc": .7, "train_auprc": .2, "val_auprc": .1} for e in (1, 2, 3)]
+                           "train_bacc": .6, "val_bacc": .6, "train_auroc": .8, "val_auroc": .7, "train_auprc": .2, "val_auprc": .1} for e in (1, 2, 3)]
     R.plot_training_curves(hist, str(tmp_path / "a.png"), "t"); R.plot_roc_pr({"dogrulama": (y, p)}, str(tmp_path / "b.png"), "t")
     R.plot_confusion(R.hour_report(y, p, 0.5), str(tmp_path / "c.png"), "t")
     assert all((tmp_path / f).stat().st_size > 1000 for f in ["a.png", "b.png", "c.png"])
+
+
+def test_class_auc_and_adaptation_helpers():
+    y, p = _yp(); thr = R.threshold_at_alarm_rate(p, 0.05); r = R.hour_report(y, p, thr)
+    a = r["auc"]; assert abs(a["sepsis_var"] - a["sepsis_yok"]) < 1e-9 and 0.5 < a["macro"] <= 1
+    assert "Sınıf bazında ROC AUC" in R.report_markdown(r, "x") and "ETİKETSİZ" in R.report_markdown(r, "x", esik_kaynagi="adaptasyon")
+    y2, p2 = _yp(seed=5); p2 = np.clip(p2 * 0.5, 0, 1)                      # hedefte skorlar küçülmüş (kalibrasyon kayması)
+    c = R.adaptation_comparison(y2, p2, thr, R.threshold_at_alarm_rate(_yp(seed=6)[1] * 0.5, 0.05))
+    assert c["uyarlanmis_esik"]["alarm_orani"] > c["dogrulama_esigi"]["alarm_orani"]
+    assert "uyarlanmis_esik" in R.adaptation_markdown(c, 0.05)

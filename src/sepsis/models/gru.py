@@ -62,7 +62,10 @@ def train_model(make_model, train, val, cfg, seed, device="cpu", noise_idx=None,
     train/val: (X_list, y_list). Döndürür: en iyi doğrulama AUPRC'li model, epoch geçmişi.
 
     cfg anahtarları: lr, weight_decay, batch_size, max_epochs, patience, alarm_rate (varsayılan 0.05);
-    isteğe bağlı: noise_std (yalnızca eğitimde, noise_idx sütunlarına Gauss gürültüsü; varsayılan 0),
+    isteğe bağlı (hepsi YALNIZCA eğitimde, noise_idx = değer sütunları; varsayılan 0 = kapalı):
+    noise_std (jittering: her saat/öznitelik için Gauss gürültüsü),
+    scale_std (magnitude scaling: hasta ve öznitelik başına çarpan 1 + N(0, scale_std)),
+    shift_std (offset: hasta ve öznitelik başına eklenen N(0, shift_std) -- hastaneler arası ölçüm/kalibrasyon farkını taklit eder),
     mask_drop (olasılık p, mask_idx sütunları verilmişse: yalnızca eğitimde her hasta için bu sütunlar p olasılıkla
     TÜM saatlerde sıfırlanır -- modelin hastaneye özgü ölçüm alışkanlığına bağımlılığını azaltmak için; varsayılan 0),
     gap_limit (varsa: eğitim-doğrulama AUPRC farkı bu sınırı aşan epoch'lar en iyi seçilmez; seçim yalnızca
@@ -72,7 +75,7 @@ def train_model(make_model, train, val, cfg, seed, device="cpu", noise_idx=None,
     ytr = np.concatenate(train[1]); pos_weight = torch.tensor((ytr == 0).sum() / max((ytr == 1).sum(), 1), dtype=torch.float32)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     lossf = nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device), reduction="none")
-    noise = float(cfg.get("noise_std", 0.0) or 0.0); gap_limit = cfg.get("gap_limit"); alarm = float(cfg.get("alarm_rate", 0.05))
+    noise = float(cfg.get("noise_std", 0.0) or 0.0); scale = float(cfg.get("scale_std", 0.0) or 0.0); shift = float(cfg.get("shift_std", 0.0) or 0.0); gap_limit = cfg.get("gap_limit"); alarm = float(cfg.get("alarm_rate", 0.05))
     mdrop = float(cfg.get("mask_drop", 0.0) or 0.0)
     best, best_state, wait, history, best_epoch = -1.0, None, 0, [], 0
     min_gap, gap_state, gap_epoch = float("inf"), None, 0                  # gap_limit hiçbir epoch'ta sağlanmazsa yedek
@@ -80,8 +83,12 @@ def train_model(make_model, train, val, cfg, seed, device="cpu", noise_idx=None,
         t0 = time.time(); model.train(); total, count = 0.0, 0
         for _, X, y, mask in _batches(train[0], train[1], cfg["batch_size"], True, rng):
             X, y, mask = X.to(device), y.to(device), mask.to(device)
-            if noise > 0 and noise_idx is not None:                       # veri artırma: yalnızca eğitimde
-                X = X.clone(); X[..., noise_idx] += noise * torch.randn_like(X[..., noise_idx])
+            if (noise > 0 or scale > 0 or shift > 0) and noise_idx is not None:   # veri artırma: yalnızca eğitimde
+                X = X.clone(); v = X[..., noise_idx]
+                if noise > 0: v = v + noise * torch.randn_like(v)
+                if scale > 0: v = v * (1 + scale * torch.randn(v.shape[0], 1, v.shape[-1], device=v.device))
+                if shift > 0: v = v + shift * torch.randn(v.shape[0], 1, v.shape[-1], device=v.device)
+                X[..., noise_idx] = v
             if mdrop > 0 and mask_idx is not None:                        # eksiklik göstergesi bırakma: yalnızca eğitimde
                 drop = (torch.rand(X.shape[0], 1, 1, device=X.device) < mdrop).float()
                 X = X.clone(); X[..., mask_idx] = X[..., mask_idx] * (1 - drop)
