@@ -96,3 +96,24 @@ def test_mask_drop_zero_keeps_results_identical():
         m, _ = train_model(lambda: GRUD(IDX, 8, 0.1), tr, va, {**cfg, **extra}, 3, "cpu", verbose=False,
                            mask_idx=torch.tensor(IDX["maske"])); ps.append(predict(m, *va)[1])
     assert np.allclose(ps[0], ps[1], atol=1e-7)
+
+
+def test_augmentations_apply_only_in_training_and_zero_keeps_results_identical():
+    rng = np.random.default_rng(0); tr, va = _data(30, rng), _data(15, rng)
+    base = {"lr": 0.01, "weight_decay": 0.0, "batch_size": 10, "max_epochs": 1, "patience": 1}
+    deger = torch.tensor(IDX["deger"]); diger = IDX["maske"] + IDX["delta"] + IDX["diger"]
+    seen = {}
+    def run(extra, key):
+        def make(): seen[key] = _Probe(); return seen[key]
+        train_model(make, tr, va, {**base, **extra}, 0, "cpu", noise_idx=deger, verbose=False)
+    run({}, "kapali"); run({"scale_std": 0.5, "shift_std": 0.5}, "acik")
+    k_tr = torch.cat([x.reshape(-1, D) for x in seen["kapali"].train_x]); a_tr = torch.cat([x.reshape(-1, D) for x in seen["acik"].train_x])
+    assert not torch.allclose(k_tr[:, IDX["deger"]], a_tr[:, IDX["deger"]])                    # değer sütunları eğitimde değişir
+    assert torch.allclose(k_tr[:, diger], a_tr[:, diger])                                      # diğer sütunlara dokunulmaz
+    k_ev = torch.cat([x.reshape(-1, D) for x in seen["kapali"].eval_x]); a_ev = torch.cat([x.reshape(-1, D) for x in seen["acik"].eval_x])
+    assert torch.allclose(k_ev, a_ev)                                                           # doğrulamada hiçbir şey değişmez
+    torch.set_num_threads(1); ps = []
+    for extra in ({}, {"noise_std": 0.0, "scale_std": 0.0, "shift_std": 0.0}):
+        m, _ = train_model(lambda: GRUD(IDX, 8, 0.1), tr, va, {**base, "max_epochs": 2, "patience": 2, **extra}, 3, "cpu", deger, verbose=False)
+        ps.append(predict(m, *va)[1])
+    assert np.allclose(ps[0], ps[1], atol=1e-7)

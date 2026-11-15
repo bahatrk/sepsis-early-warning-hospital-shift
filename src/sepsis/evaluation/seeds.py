@@ -50,6 +50,13 @@ def summarize_model(results_dir: str, model: str, slug: str) -> dict:
             out[k][m] = {"ort": float(v.mean()), "std": float(v.std(ddof=1)) if len(v) > 1 else 0.0}
     gaps = np.array([r["egitim"]["AUPRC"] - r["dogrulama"]["AUPRC"] for r in runs])
     out["auprc_farki"] = {"ort": float(gaps.mean()), "ihlal": int((gaps > 0.05).sum())}
+    if all("hedef_uyarlama" in r for r in runs):                       # etiketsiz eşik uyarlaması (hedef test)
+        out["hedef_uyarlama"] = {}
+        for ad in ("dogrulama_esigi", "uyarlanmis_esik"):
+            out["hedef_uyarlama"][ad] = {}
+            for m in ("alarm_orani", "precision", "recall", "f1", "dengeli_accuracy"):
+                v = np.array([r["hedef_uyarlama"][ad][m] for r in runs], dtype=float)
+                out["hedef_uyarlama"][ad][m] = {"ort": float(v.mean()), "std": float(v.std(ddof=1)) if len(v) > 1 else 0.0}
     return out
 
 
@@ -64,4 +71,11 @@ def models_to_markdown(summaries: list) -> str:
               "| Model | Yön | Ortalama fark | Ölçütü aşan çalıştırma |", "|---|---|---|---|"]
     for s in summaries:
         g = s["auprc_farki"]; satir.append(f"| {s['model']} | {s['yon']} | {g['ort']:.3f} | {g['ihlal']} / {s['n']} |")
+    if any("hedef_uyarlama" in s for s in summaries):
+        satir += ["", "Hedef test, etiketsiz eşik uyarlaması (ort ± std; iki eşik de doğrulamadaki %5 alarm oranını hedefler):", "",
+                  "| Model | Yön | Eşik | Gerçekleşen alarm oranı | Precision | Recall | F1 | Dengeli acc. |", "|---|---|---|---|---|---|---|---|"]
+        for s in summaries:
+            for ad, h in s.get("hedef_uyarlama", {}).items():
+                f = lambda m: f"{h[m]['ort']:.3f} ± {h[m]['std']:.3f}"
+                satir.append(f"| {s['model']} | {s['yon']} | {ad} | {f('alarm_orani')} | {f('precision')} | {f('recall')} | {f('f1')} | {f('dengeli_accuracy')} |")
     return "\n".join(satir)

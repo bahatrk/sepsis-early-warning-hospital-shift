@@ -5,6 +5,12 @@ doğrulama AUPRC'si tohumlar üzerinden ortalanır. Seçim kuralı: ortalama far
 doğrulama AUPRC; hiçbiri sağlamıyorsa en küçük ortalama fark. Kazanan ayar results/tarama/<model>_<yon>.json'a yazılır;
 sonra configs/default.yaml'a elle işlenip 07_model_seeds.py ile 5 tohum koşulur.
 
+Aşamalı kullanım (tek seferde tam ızgara yerine, süreyi kısaltmak için):
+  Aşama 1 (weight decay; AdamW'de adım başına küçülme lr*wd olduğundan 1e-4 etkisizdir):
+    python scripts/08_regularization_sweep.py --model gru --dropout 0.2 --weight-decay 1e-4 1e-2 5e-2 1e-1 3e-1 --gap-limit 0.05 --etiket _wd
+  Aşama 2 (veri artırma, seçilen weight decay ile):
+    python scripts/08_regularization_sweep.py --model gru --weight-decay <seçilen> --gap-limit 0.05 --noise-std 0 0.05 0.1 0.2 --etiket _jitter
+    ... --scale-std 0 0.05 0.1 0.2 --etiket _scale ;  ... --shift-std 0 0.1 0.2 0.4 --etiket _offset
 Kullanım:  python scripts/08_regularization_sweep.py --model grud --yonler "A->B" "B->A" --seeds 0 1
            python scripts/08_regularization_sweep.py --model gru --dropout 0.2 0.4 --weight-decay 1e-4 1e-3 --gap-limit none 0.05"""
 import argparse, itertools, json, os
@@ -21,7 +27,10 @@ ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1])
 ap.add_argument("--dropout", type=float, nargs="+", default=[0.2, 0.4])
 ap.add_argument("--weight-decay", type=float, nargs="+", default=[1e-4, 1e-3])
 ap.add_argument("--gap-limit", nargs="+", default=["none", "0.05"])
-ap.add_argument("--noise-std", type=float, nargs="+", default=[0.0])
+ap.add_argument("--noise-std", type=float, nargs="+", default=[0.0], help="jittering (yalnızca eğitimde)")
+ap.add_argument("--scale-std", type=float, nargs="+", default=[0.0], help="magnitude scaling (yalnızca eğitimde)")
+ap.add_argument("--shift-std", type=float, nargs="+", default=[0.0], help="hasta başına offset (yalnızca eğitimde)")
+ap.add_argument("--etiket", default="", help="çıktı dosya adına eklenir (aşamaları ayırmak için)")
 ap.add_argument("--device", default=None)
 args = ap.parse_args()
 cfg = load_config(); device = args.device or cfg.get("train", {}).get("device", "cpu")
@@ -37,29 +46,29 @@ for yon in args.yonler:
     tr, va = load_sequences(f"{D}/egitim.npz"), load_sequences(f"{D}/dogrulama.npz")   # test yüklenmez
     nf = tr[0][0].shape[1]; noise_idx = torch.tensor(idx["deger"])
     rows = []
-    for do, wd, gl, ns in itertools.product(args.dropout, args.weight_decay, gaps, args.noise_std):
-        H = dict(base, dropout=do, weight_decay=wd, gap_limit=gl, noise_std=ns)
+    for do, wd, gl, ns, sc, sh in itertools.product(args.dropout, args.weight_decay, gaps, args.noise_std, args.scale_std, args.shift_std):
+        H = dict(base, dropout=do, weight_decay=wd, gap_limit=gl, noise_std=ns, scale_std=sc, shift_std=sh)
         make = (lambda: CausalGRU(nf, H["hidden"], H["layers"], H["dropout"])) if args.model == "gru" \
             else (lambda: GRUD(idx, H["hidden"], H["dropout"]))
         v, g, ep = [], [], []
         for s in args.seeds:
-            print(f"[{args.model}] {yon} dropout={do} wd={wd} gap={gl} noise={ns} seed={s}", flush=True)
+            print(f"[{args.model}] {yon} dropout={do} wd={wd} gap={gl} noise={ns} scale={sc} shift={sh} seed={s}", flush=True)
             m, hist = train_model(make, tr, va, H, s, device, noise_idx, verbose=False)
             h = next(r for r in hist if r["epoch"] == m.best_epoch)
             v.append(h["val_auprc"]); g.append(h["train_auprc"] - h["val_auprc"]); ep.append(int(m.best_epoch))
-        rows.append({"dropout": do, "weight_decay": wd, "gap_limit": gl, "noise_std": ns, "val_auprc": float(np.mean(v)),
+        rows.append({"dropout": do, "weight_decay": wd, "gap_limit": gl, "noise_std": ns, "scale_std": sc, "shift_std": sh, "val_auprc": float(np.mean(v)),
                      "val_auprc_std": float(np.std(v)), "fark": float(np.mean(g)), "fark_max": float(np.max(g)),
                      "en_iyi_epoch": ep})
         print("   ->", rows[-1], flush=True)
     ok = [r for r in rows if r["fark"] <= 0.05]
     best = max(ok, key=lambda r: r["val_auprc"]) if ok else min(rows, key=lambda r: r["fark"])
     res = {"model": args.model, "yon": yon, "seeds": args.seeds, "olcut_saglandi": bool(ok), "secilen": best, "tum": rows}
-    json.dump(res, open(f"{out_dir}/{args.model}_{slug}.json", "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    json.dump(res, open(f"{out_dir}/{args.model}_{slug}{args.etiket}.json", "w", encoding="utf-8"), indent=1, ensure_ascii=False)
     md = [f"## {args.model} | {yon} | tohumlar {args.seeds}  (yalnızca doğrulama kümesi)\n",
-          "| dropout | weight decay | gap_limit | gürültü | doğr. AUPRC | eğitim−doğr. fark (ort) | fark (maks) | en iyi epoch |", "|---|---|---|---|---|---|---|---|"]
+          "| dropout | weight decay | gap_limit | jitter | scaling | offset | doğr. AUPRC | eğitim−doğr. fark (ort) | fark (maks) | en iyi epoch |", "|---|---|---|---|---|---|---|---|---|---|"]
     for r in sorted(rows, key=lambda r: -r["val_auprc"]):
-        md.append(f"| {r['dropout']} | {r['weight_decay']} | {r['gap_limit']} | {r['noise_std']} | {r['val_auprc']:.4f} ± {r['val_auprc_std']:.4f} | {r['fark']:.3f} | {r['fark_max']:.3f} | {r['en_iyi_epoch']} |")
-    md.append(f"\nSeçilen: dropout={best['dropout']}, weight_decay={best['weight_decay']}, gap_limit={best['gap_limit']}, noise_std={best['noise_std']} "
+        md.append(f"| {r['dropout']} | {r['weight_decay']} | {r['gap_limit']} | {r['noise_std']} | {r['scale_std']} | {r['shift_std']} | {r['val_auprc']:.4f} ± {r['val_auprc_std']:.4f} | {r['fark']:.3f} | {r['fark_max']:.3f} | {r['en_iyi_epoch']} |")
+    md.append(f"\nSeçilen: dropout={best['dropout']}, weight_decay={best['weight_decay']}, gap_limit={best['gap_limit']}, noise_std={best['noise_std']}, scale_std={best['scale_std']}, shift_std={best['shift_std']} "
               f"({'ölçüt sağlandı' if ok else 'HİÇBİR ayar fark<=0.05 sağlamadı; en küçük fark seçildi'}).")
-    open(f"{out_dir}/{args.model}_{slug}.md", "w", encoding="utf-8").write("\n".join(md) + "\n")
+    open(f"{out_dir}/{args.model}_{slug}{args.etiket}.md", "w", encoding="utf-8").write("\n".join(md) + "\n")
     print("\n".join(md))
