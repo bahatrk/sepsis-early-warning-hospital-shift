@@ -6,6 +6,8 @@ Modeller:
   gru_maskdrop   baz GRU + eğitimde eksiklik göstergelerini (gözlendi, son ölçüm süresi) hasta bazında p olasılıkla sıfırlama (--mask-drop, varsayılan 0.5)
   grud           GRU-D tarzı eksiklik farkındalıklı kodlayıcı (girdi + gizli durum çürümesi) -- ÖNERİLEN MODEL
   grud_decaysiz  grud'un çürüme mekanizmaları kapalı hali -- ablasyon
+  gbm            LightGBM + zengin nedensel pencere öznitelikleri (gözlendi/ölçüm sıklığı DAHİL) -- ağaç tabanlı baseline
+  gbm_davranissiz LightGBM, yalnızca değer ve pencere öznitelikleri (eksiklik göstergeleri/ölçüm sıklığı ÇIKARILMIŞ)
 
 Kullanım:  python scripts/06_train_model.py "A->B" --model grud --seed 0 [--device cuda]
 Çıktılar:  results/modeller/<model>_<yon>_seed<s>/  (sonuc.json, egriler.png, roc_pr.png, karisiklik_*.png,
@@ -21,7 +23,7 @@ from sepsis.evaluation import calibration as C
 from sepsis.models.gru import CausalGRU, train_model, predict
 from sepsis.models.grud import GRUD, grud_indices
 
-MODELLER = ["gru", "gru_ozelliksiz", "gru_maskdrop", "grud", "grud_decaysiz"]
+MODELLER = ["gru", "gru_ozelliksiz", "gru_maskdrop", "grud", "grud_decaysiz", "gbm", "gbm_davranissiz"]
 KUMELER = ["egitim", "dogrulama", "kaynak_ici_test", "hedef_test"]
 
 ap = argparse.ArgumentParser(); ap.add_argument("direction", choices=["A->B", "B->A"])
@@ -34,7 +36,8 @@ device = args.device or cfg.get("train", {}).get("device", "cpu")
 if device == "cuda" and not torch.cuda.is_available():
     print("UYARI: cuda yok, cpu kullanılıyor."); device = "cpu"
 alarm = float(cfg.get("report", {}).get("alarm_rate", 0.05))
-H = dict(cfg["grud"] if args.model.startswith("grud") else cfg["gru"]); H["alarm_rate"] = alarm
+GBM = args.model.startswith("gbm")
+H = dict(cfg["gbm"] if GBM else cfg["grud"] if args.model.startswith("grud") else cfg["gru"]); H["alarm_rate"] = alarm
 if args.model == "gru_maskdrop": H["mask_drop"] = args.mask_drop
 if device == "cpu": torch.set_num_threads(H.get("threads", os.cpu_count() or 1))
 
@@ -46,35 +49,52 @@ assert kes == 0, "Kümeler arasında ortak hasta var!"
 
 D = f"{cfg['paths']['processed_dir']}/{slug}"
 names = json.load(open(f"{D}/ozellikler.json", encoding="utf-8")); idx = grud_indices(names)
-seqs = {k: load_sequences(f"{D}/{k}.npz") for k in KUMELER}
-
-# --- girdi sütunları ve model fabrikası ---
-if args.model == "gru_ozelliksiz":
-    keep = sorted(idx["deger"] + idx["diger"])                       # gözlendi + son_olcum_suresi sütunları çıkarılır
-    seqs = {k: ([x[:, keep] for x in X], y) for k, (X, y) in seqs.items()}
-    noise_idx = torch.tensor([keep.index(i) for i in idx["deger"]])
+if GBM:
+    from sepsis.models import gbm as G
+    adapt_path = f"{D}/adaptasyon.npz"
+    raw = {k: np.load(f"{D}/{k}.npz") for k in KUMELER + (["adaptasyon"] if os.path.exists(adapt_path) else [])}
+    feats, ys = {}, {}
+    for k, z in raw.items():
+        feats[k], fnames = G.build_features(z["X"], z["saat"], names, davranis=(args.model == "gbm")); ys[k] = z["y"].astype(np.int8)
+    n_features, keep = feats["egitim"].shape[1], None
+    print(f"[{args.model}] {args.direction} seed {args.seed} | öznitelik {n_features}", flush=True)
+    model, hist = G.train_gbm(feats["egitim"], ys["egitim"], feats["dogrulama"], ys["dogrulama"], H, args.seed)
+    model.best_epoch = model.best_it
+    preds = {k: (ys[k], model.predict(feats[k], num_iteration=model.best_it)) for k in KUMELER}
+    pa = model.predict(feats["adaptasyon"], num_iteration=model.best_it) if "adaptasyon" in feats else None
 else:
-    keep = list(range(len(names))); noise_idx = torch.tensor(idx["deger"])
-n_features = seqs["egitim"][0][0].shape[1]
-if args.model in ("gru", "gru_ozelliksiz", "gru_maskdrop"):
-    make = lambda: CausalGRU(n_features, H["hidden"], H["layers"], H["dropout"])
-else:
-    dec = args.model == "grud"
-    make = lambda: GRUD(idx, H["hidden"], H["dropout"], decay_x=dec, decay_h=dec)
+    seqs = {k: load_sequences(f"{D}/{k}.npz") for k in KUMELER}
 
-print(f"[{args.model}] {args.direction} seed {args.seed} | cihaz {device} | öznitelik {n_features}")
-model, hist = train_model(make, seqs["egitim"], seqs["dogrulama"], H, args.seed, device, noise_idx,
-                          mask_idx=torch.tensor(idx["maske"] + idx["delta"]))
+    # --- girdi sütunları ve model fabrikası ---
+    if args.model == "gru_ozelliksiz":
+        keep = sorted(idx["deger"] + idx["diger"])                       # gözlendi + son_olcum_suresi sütunları çıkarılır
+        seqs = {k: ([x[:, keep] for x in X], y) for k, (X, y) in seqs.items()}
+        noise_idx = torch.tensor([keep.index(i) for i in idx["deger"]])
+    else:
+        keep = list(range(len(names))); noise_idx = torch.tensor(idx["deger"])
+    n_features = seqs["egitim"][0][0].shape[1]
+    if args.model in ("gru", "gru_ozelliksiz", "gru_maskdrop"):
+        make = lambda: CausalGRU(n_features, H["hidden"], H["layers"], H["dropout"])
+    else:
+        dec = args.model == "grud"
+        make = lambda: GRUD(idx, H["hidden"], H["dropout"], decay_x=dec, decay_h=dec)
+
+    print(f"[{args.model}] {args.direction} seed {args.seed} | cihaz {device} | öznitelik {n_features}")
+    model, hist = train_model(make, seqs["egitim"], seqs["dogrulama"], H, args.seed, device, noise_idx,
+                              mask_idx=torch.tensor(idx["maske"] + idx["delta"]))
 
 # --- tahminler: test kümeleri model seçildikten SONRA, bir kez ---
-preds = {}
-for k in KUMELER:
-    y, p = predict(model, *seqs[k], device=device); preds[k] = (y, p)
+if not GBM:
+    preds = {}
+    for k in KUMELER:
+        y, p = predict(model, *seqs[k], device=device); preds[k] = (y, p)
+    adapt_path = f"{D}/adaptasyon.npz"; pa = None
+    if os.path.exists(adapt_path):                                     # etiketsiz hedef hastane verisi: yalnızca model çıktıları kullanılır
+        Xa, ya = load_sequences(adapt_path); Xa = [x[:, keep] for x in Xa]      # modelin gördüğü sütunlar (gru_ozelliksiz için 40)
+        pa = predict(model, Xa, ya, device=device)[1]
 thr = R.threshold_at_alarm_rate(preds["dogrulama"][1], alarm)          # eşik yalnızca doğrulamadan
-adapt_path = f"{D}/adaptasyon.npz"; cmp_adapt = None; cal = None; pa = None
-if os.path.exists(adapt_path):                                         # etiketsiz hedef hastane verisi: yalnızca model çıktıları kullanılır
-    Xa, ya = load_sequences(adapt_path); Xa = [x[:, keep] for x in Xa]      # modelin gördüğü sütunlar (gru_ozelliksiz için 40)
-    pa = predict(model, Xa, ya, device=device)[1]
+cmp_adapt = None; cal = None
+if pa is not None:
     thr_a = R.threshold_at_alarm_rate(pa, alarm)
     cmp_adapt = R.adaptation_comparison(*preds["hedef_test"], thr, thr_a)
     cal = C.calibration_report(*preds["dogrulama"], *preds["hedef_test"], pa, *preds["kaynak_ici_test"])   # yalnızca kaynak etiketleri + etiketsiz hedef skorları
@@ -110,6 +130,9 @@ R.plot_training_curves(hist, f"{out}/egriler.png", f"{args.model} | {args.direct
 R.plot_roc_pr({k: preds[k] for k in ["dogrulama", "kaynak_ici_test", "hedef_test"]}, f"{out}/roc_pr.png", f"{args.model} | {args.direction} | seed {args.seed}")
 
 md = f"{cfg['paths']['artifacts_dir']}/{args.model}/{slug}"; os.makedirs(md, exist_ok=True)
-torch.save({"state_dict": model.state_dict(), "n_features": n_features, "keep": keep, "idx": idx, "cfg": H, "esik": thr,
-            "model": args.model}, f"{md}/seed{args.seed}.pt")
+if GBM:
+    model.save_model(f"{md}/seed{args.seed}.txt")
+else:
+    torch.save({"state_dict": model.state_dict(), "n_features": n_features, "keep": keep, "idx": idx, "cfg": H, "esik": thr,
+                "model": args.model}, f"{md}/seed{args.seed}.pt")
 print(tablo_md); print("Çıktılar:", out)
