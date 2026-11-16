@@ -17,6 +17,7 @@ from sepsis.config import load_config, direction_slug
 from sepsis.data.sequences import load_sequences
 from sepsis.evaluation.metrics import discrimination
 from sepsis.evaluation import report as R
+from sepsis.evaluation import calibration as C
 from sepsis.models.gru import CausalGRU, train_model, predict
 from sepsis.models.grud import GRUD, grud_indices
 
@@ -70,12 +71,13 @@ preds = {}
 for k in KUMELER:
     y, p = predict(model, *seqs[k], device=device); preds[k] = (y, p)
 thr = R.threshold_at_alarm_rate(preds["dogrulama"][1], alarm)          # eşik yalnızca doğrulamadan
-adapt_path = f"{D}/adaptasyon.npz"; cmp_adapt = None
+adapt_path = f"{D}/adaptasyon.npz"; cmp_adapt = None; cal = None; pa = None
 if os.path.exists(adapt_path):                                         # etiketsiz hedef hastane verisi: yalnızca model çıktıları kullanılır
     Xa, ya = load_sequences(adapt_path); Xa = [x[:, keep] for x in Xa]      # modelin gördüğü sütunlar (gru_ozelliksiz için 40)
     pa = predict(model, Xa, ya, device=device)[1]
     thr_a = R.threshold_at_alarm_rate(pa, alarm)
     cmp_adapt = R.adaptation_comparison(*preds["hedef_test"], thr, thr_a)
+    cal = C.calibration_report(*preds["dogrulama"], *preds["hedef_test"], pa, *preds["kaynak_ici_test"])   # yalnızca kaynak etiketleri + etiketsiz hedef skorları
 
 res = {"yon": args.direction, "model": args.model, "seed": args.seed, "cihaz": device, "en_iyi_epoch": int(model.best_epoch),
        "hiperparametre": {k: v for k, v in H.items()}, "n_ozellik": int(n_features), "esik": thr, "alarm_orani_hedef": alarm,
@@ -93,6 +95,12 @@ if cmp_adapt is not None:
     open(f"{out}/rapor_hedef_test_uyarlanmis_esik.md", "w", encoding="utf-8").write(
         R.report_markdown(rep_a, f"Hedef test, uyarlanmış eşik ({args.model}, {args.direction})", alarm, esik_kaynagi="adaptasyon") + "\n" + R.adaptation_markdown(cmp_adapt, alarm))
     R.plot_confusion(rep_a, f"{out}/karisiklik_hedef_test_uyarlanmis_esik.png", f"Hedef test | {args.model} {args.direction} | uyarlanmış eşik (%{100*alarm:.0f} alarm)")
+if cal is not None:
+    res["kalibrasyon"] = cal
+    open(f"{out}/rapor_kalibrasyon.md", "w", encoding="utf-8").write(C.calibration_markdown(cal))
+# ham skorlar (sonradan bootstrap güven aralığı / eşleştirilmiş test için); sıkıştırılmış
+np.savez_compressed(f"{out}/skorlar.npz", **{f"{k}_y": preds[k][0].astype(np.int8) for k in KUMELER}, **{f"{k}_p": preds[k][1].astype(np.float32) for k in KUMELER},
+                    **({"adaptasyon_p": pa.astype(np.float32)} if pa is not None else {}))
 json.dump(res, open(f"{out}/sonuc.json", "w", encoding="utf-8"), indent=1, ensure_ascii=False)
 open(f"{out}/tablo.md", "w", encoding="utf-8").write(
     f"## {args.model} | {args.direction} | seed {args.seed}\n\nEn iyi epoch: {model.best_epoch} (seçim: doğrulama AUPRC). "
