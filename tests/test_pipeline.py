@@ -109,3 +109,21 @@ def test_pencere_ozellikleri_nedensel_ve_hasta_sinirina_saygili():
     assert np.isclose(F[8, adlar.index("HR__delta6")], col[8] - col[2])
     X2 = X.copy(); X2[8:, :] += 100                                    # gelecek değişirse (saat 8 ve sonrası) önceki saatlerin öznitelikleri değişmemeli
     F2, _ = build_features(X2, saat, names, True); assert np.allclose(F[:8], F2[:8])
+
+
+def test_gbm_sweep_yalniz_egitim_ve_dogrulama(raw_dir, tmp_path):
+    cfg = yaml.safe_load(open(ROOT / "configs/default.yaml", encoding="utf-8"))
+    cfg["paths"].update(raw_dir=raw_dir, split_csv=str(tmp_path / "bolme.csv"), processed_dir=str(tmp_path / "proc"),
+                        artifacts_dir=str(tmp_path / "art"), results_dir=str(tmp_path / "res"))
+    cfg["gbm"].update(threads=1)
+    (tmp_path / "cfg.yaml").write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    env = {**os.environ, "SEPSIS_CONFIG": str(tmp_path / "cfg.yaml"), "PYTHONPATH": str(ROOT / "src")}
+    run = lambda *a: subprocess.run([sys.executable, *a], cwd=ROOT, env=env, check=True, capture_output=True, text=True)
+    run("scripts/01_make_split.py"); run("scripts/02_preprocess.py", "A->B")
+    for f in ("kaynak_ici_test", "hedef_test", "adaptasyon"):
+        p = tmp_path / "proc" / "A_B" / f"{f}.npz"
+        if p.exists(): p.unlink()
+    run("scripts/09_gbm_sweep.py", "--yonler", "A->B", "--num-leaves", "4", "--min-child", "5", "50", "--lambda-l2", "10",
+        "--max-rounds", "20", "--kontrol", "10")
+    r = json.load(open(tmp_path / "res" / "tarama" / "gbm_A_B.json", encoding="utf-8"))
+    assert len(r["satirlar"]) == 2 and "secilen" in r and (tmp_path / "res" / "tarama" / "gbm_A_B.md").exists()
