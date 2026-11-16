@@ -19,11 +19,12 @@ def test_train_script_produces_all_outputs(raw_dir, tmp_path):
         d = tmp_path / "res" / "modeller" / f"{model}_A_B_seed0"
         for f in ["sonuc.json", "tablo.md", "kesisim.md", "egriler.png", "roc_pr.png", "karisiklik_kaynak_ici_test.png",
                   "karisiklik_hedef_test.png", "rapor_dogrulama.md", "rapor_hedef_test.md",
-                  "rapor_hedef_test_uyarlanmis_esik.md", "karisiklik_hedef_test_uyarlanmis_esik.png"]:
+                  "rapor_hedef_test_uyarlanmis_esik.md", "karisiklik_hedef_test_uyarlanmis_esik.png", "rapor_kalibrasyon.md", "skorlar.npz"]:
             assert (d / f).exists(), f"{model}: {f} yok"
         r = json.load(open(d / "sonuc.json", encoding="utf-8"))
         assert r["n_ozellik"] == (40 if model == "gru_ozelliksiz" else 108)
         assert {"dogrulama_esigi", "uyarlanmis_esik"} <= set(r["hedef_uyarlama"])
+        assert {"ham", "platt", "platt_em", "platt_oracle_oncul"} <= set(r["kalibrasyon"]["hedef_test"])
         assert "Toplam kesişen hasta: 0" in (d / "kesisim.md").read_text(encoding="utf-8")
         assert (tmp_path / "art" / model / "A_B" / "seed0.pt").exists()
 

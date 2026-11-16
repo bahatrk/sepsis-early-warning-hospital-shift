@@ -57,7 +57,17 @@ def summarize_model(results_dir: str, model: str, slug: str) -> dict:
             for m in ("alarm_orani", "precision", "recall", "f1", "dengeli_accuracy"):
                 v = np.array([r["hedef_uyarlama"][ad][m] for r in runs], dtype=float)
                 out["hedef_uyarlama"][ad][m] = {"ort": float(v.mean()), "std": float(v.std(ddof=1)) if len(v) > 1 else 0.0}
+    if all("kalibrasyon" in r for r in runs):                          # olasılık kalibrasyonu (hedef test)
+        out["kalibrasyon"] = {"oncul_em": _ms([r["kalibrasyon"]["oncul"]["hedef_em"] for r in runs]),
+                              "oncul_gercek": _ms([r["kalibrasyon"]["oncul"]["hedef_gercek_tani"] for r in runs])}
+        for ad in ("ham", "platt", "platt_em", "platt_oracle_oncul"):
+            out["kalibrasyon"][ad] = {m: _ms([r["kalibrasyon"]["hedef_test"][ad][m] for r in runs]) for m in ("ece", "brier", "brier_beceri", "ortalama_tahmin")}
     return out
+
+
+def _ms(v) -> dict:
+    v = np.array(v, dtype=float)
+    return {"ort": float(v.mean()), "std": float(v.std(ddof=1)) if len(v) > 1 else 0.0}
 
 
 def models_to_markdown(summaries: list) -> str:
@@ -78,4 +88,15 @@ def models_to_markdown(summaries: list) -> str:
             for ad, h in s.get("hedef_uyarlama", {}).items():
                 f = lambda m: f"{h[m]['ort']:.3f} ± {h[m]['std']:.3f}"
                 satir.append(f"| {s['model']} | {s['yon']} | {ad} | {f('alarm_orani')} | {f('precision')} | {f('recall')} | {f('f1')} | {f('dengeli_accuracy')} |")
+    if any("kalibrasyon" in s for s in summaries):
+        satir += ["", "Hedef test, olasılık kalibrasyonu (ort ± std). `platt_em`: kaynakta Platt + hedefin etiketsiz verisinden EM öncül düzeltmesi; "
+                  "`platt_oracle_oncul` tanı amaçlıdır (gerçek hedef oranını kullanır):", "",
+                  "| Model | Yön | Biçim | ECE | Brier | Brier becerisi | Ort. tahmin | Hedef oranı: EM kestirimi / gerçek |", "|---|---|---|---|---|---|---|---|"]
+        for s in summaries:
+            k = s.get("kalibrasyon")
+            if not k: continue
+            f = lambda d, m: f"{d[m]['ort']:.4f} ± {d[m]['std']:.4f}"
+            for ad in ("ham", "platt", "platt_em", "platt_oracle_oncul"):
+                oran = f"{k['oncul_em']['ort']:.4f} / {k['oncul_gercek']['ort']:.4f}" if ad == "platt_em" else ""
+                satir.append(f"| {s['model']} | {s['yon']} | {ad} | {f(k[ad], 'ece')} | {f(k[ad], 'brier')} | {f(k[ad], 'brier_beceri')} | {f(k[ad], 'ortalama_tahmin')} | {oran} |")
     return "\n".join(satir)
