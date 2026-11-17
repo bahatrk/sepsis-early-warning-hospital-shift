@@ -6,6 +6,7 @@ Modeller:
   gru_maskdrop   baz GRU + eğitimde eksiklik göstergelerini (gözlendi, son ölçüm süresi) hasta bazında p olasılıkla sıfırlama (--mask-drop, varsayılan 0.5)
   grud           GRU-D tarzı eksiklik farkındalıklı kodlayıcı (girdi + gizli durum çürümesi) -- ÖNERİLEN MODEL
   grud_decaysiz  grud'un çürüme mekanizmaları kapalı hali -- ablasyon
+  gru_coral      gru + Deep CORAL: hedefin ETİKETSİZ adaptasyon dizileriyle gizli temsil kovaryans hizalaması (λ = cfg gru.coral)
   gbm            LightGBM + zengin nedensel pencere öznitelikleri (gözlendi/ölçüm sıklığı DAHİL) -- ağaç tabanlı baseline
   gbm_davranissiz LightGBM, yalnızca değer ve pencere öznitelikleri (eksiklik göstergeleri/ölçüm sıklığı ÇIKARILMIŞ)
 
@@ -23,7 +24,7 @@ from sepsis.evaluation import calibration as C
 from sepsis.models.gru import CausalGRU, train_model, predict
 from sepsis.models.grud import GRUD, grud_indices
 
-MODELLER = ["gru", "gru_ozelliksiz", "gru_maskdrop", "grud", "grud_decaysiz", "gbm", "gbm_davranissiz"]
+MODELLER = ["gru", "gru_ozelliksiz", "gru_maskdrop", "gru_coral", "grud", "grud_decaysiz", "gbm", "gbm_davranissiz"]
 KUMELER = ["egitim", "dogrulama", "kaynak_ici_test", "hedef_test"]
 
 ap = argparse.ArgumentParser(); ap.add_argument("direction", choices=["A->B", "B->A"])
@@ -73,15 +74,22 @@ else:
     else:
         keep = list(range(len(names))); noise_idx = torch.tensor(idx["deger"])
     n_features = seqs["egitim"][0][0].shape[1]
-    if args.model in ("gru", "gru_ozelliksiz", "gru_maskdrop"):
+    if args.model in ("gru", "gru_ozelliksiz", "gru_maskdrop", "gru_coral"):
         make = lambda: CausalGRU(n_features, H["hidden"], H["layers"], H["dropout"])
     else:
         dec = args.model == "grud"
         make = lambda: GRUD(idx, H["hidden"], H["dropout"], decay_x=dec, decay_h=dec)
 
     print(f"[{args.model}] {args.direction} seed {args.seed} | cihaz {device} | öznitelik {n_features}")
+    adapt_seq = None
+    if args.model == "gru_coral":
+        H["coral"] = float(H.get("coral", 1.0) or 1.0)
+        adapt_seq = [x[:, keep] for x in load_sequences(f"{D}/adaptasyon.npz")[0]]   # yalnızca girdi; etiket yüklenmez
+        print(f"[gru_coral] λ = {H['coral']} | {len(adapt_seq)} etiketsiz hedef hasta")
+    else:
+        H.pop("coral", None)
     model, hist = train_model(make, seqs["egitim"], seqs["dogrulama"], H, args.seed, device, noise_idx,
-                              mask_idx=torch.tensor(idx["maske"] + idx["delta"]))
+                              mask_idx=torch.tensor(idx["maske"] + idx["delta"]), adapt=adapt_seq)
 
 # --- tahminler: test kümeleri model seçildikten SONRA, bir kez ---
 if not GBM:

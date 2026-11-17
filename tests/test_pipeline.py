@@ -14,7 +14,7 @@ def test_train_script_produces_all_outputs(raw_dir, tmp_path):
     env = {**os.environ, "SEPSIS_CONFIG": str(tmp_path / "cfg.yaml"), "PYTHONPATH": str(ROOT / "src")}
     run = lambda *a: subprocess.run([sys.executable, *a], cwd=ROOT, env=env, check=True, capture_output=True, text=True)
     run("scripts/01_make_split.py"); run("scripts/02_preprocess.py", "A->B")
-    for model in ("grud", "gru_ozelliksiz", "gru_maskdrop"):
+    for model in ("grud", "gru_ozelliksiz", "gru_maskdrop", "gru_coral"):
         run("scripts/06_train_model.py", "A->B", "--model", model, "--seed", "0")
         d = tmp_path / "res" / "modeller" / f"{model}_A_B_seed0"
         for f in ["sonuc.json", "tablo.md", "kesisim.md", "egriler.png", "roc_pr.png", "karisiklik_kaynak_ici_test.png",
