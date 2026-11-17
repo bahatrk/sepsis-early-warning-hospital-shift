@@ -58,7 +58,8 @@ def train_gbm(Ftr, ytr, Fva, yva, cfg: dict, seed: int, verbose: bool = True):
     (hiçbiri sağlanmazsa en küçük farklı nokta); patience kontrol noktası iyileşme olmazsa durur. Yalnızca eğitim ve doğrulama kullanılır."""
     import lightgbm as lgb
     rng = np.random.default_rng(seed)
-    sub = rng.choice(len(ytr), size=min(cfg.get("train_eval_rows", 200_000), len(ytr)), replace=False)   # eğitim AUPRC'si için alt örnek
+    n_ev = cfg.get("train_eval_rows") or 0                              # 0/None = TÜM eğitim satırları (rapordaki eğitim AUPRC'siyle aynı)
+    sub = np.arange(len(ytr)) if n_ev <= 0 or n_ev >= len(ytr) else rng.choice(len(ytr), size=n_ev, replace=False)
     params = dict(objective="binary", learning_rate=cfg["lr"], num_leaves=cfg["num_leaves"], max_depth=cfg["max_depth"],
                   min_child_samples=cfg["min_child_samples"], feature_fraction=cfg["feature_fraction"], bagging_fraction=cfg["bagging_fraction"],
                   bagging_freq=1, lambda_l2=cfg["lambda_l2"], max_bin=cfg.get("max_bin", 63), seed=seed, n_jobs=cfg.get("threads", 2), verbose=-1,
