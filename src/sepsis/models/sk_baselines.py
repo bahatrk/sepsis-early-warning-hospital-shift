@@ -14,7 +14,7 @@ IZGARA = {   # düzenlileştirme GÜÇLÜDEN ZAYIFA (eğri soldan sağa karmaş�
     "lr":  [{"C": 1e-4}, {"C": 1e-3}, {"C": 1e-2}, {"C": 1e-1}],
     "rf":  [{"min_samples_leaf": 5000}, {"min_samples_leaf": 2000}, {"min_samples_leaf": 500}],
     "et":  [{"min_samples_leaf": 5000}, {"min_samples_leaf": 2000}, {"min_samples_leaf": 500}],
-    "mlp": [{"alpha": 1.0}, {"alpha": 1e-1}, {"alpha": 1e-2}],
+    "mlp": [{"alpha": 100.0}, {"alpha": 30.0}, {"alpha": 10.0}, {"alpha": 3.0}],   # ilk ızgara (1, 0,1, 0,01) 0,05 ölçütünü hiçbir koşuda sağlamadı (fark 0,14–0,28)
 }
 
 

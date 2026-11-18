@@ -56,7 +56,7 @@ sk:                            # sklearn baseline'ları (lr, rf, et, mlp); ızga
   n_estimators: 100             # rf, et
   max_samples: 0.2              # rf, et: her ağaç eğitim satırlarının %20'si (hız + düzenlileştirme)
   lr_max_iter: 300
-  mlp_max_iter: 30
+  mlp_max_iter: 10              # ilk denemede 30 epoch hastaları ezberledi (eğitim AUPRC 0,75+)
   threads: 2
 train:
   device: cpu                  # cpu | cuda. Eski GRU sonuçları cpu ile üretildi; Colab'de colab.yaml'da cuda yapılır
