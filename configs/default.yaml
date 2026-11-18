@@ -36,6 +36,21 @@ grud:                          # GRU-D tarzı model (önerilen) ve ablasyonu; gr
   noise_std: 0.0               # veri artırma: yalnızca eğitimde, değer sütunlarına Gauss gürültüsü (0 = kapalı)
   gap_limit: null              # örn. 0.05: eğitim-doğrulama AUPRC farkı bunu aşan epoch en iyi seçilmez (yalnızca doğrulamaya dayanır)
   threads: 8
+gbm:                           # LightGBM (scripts/06 --model gbm | gbm_davranissiz); ayarlar 09_gbm_sweep.py ile YALNIZCA eğitim/doğrulamada seçildi
+  lr: 0.05
+  num_leaves: 4                 # tarama (2 yön, tohum 0, 8 ayar): kazanan yaprak=4, min_child=5000, lambda_l2=10 (iki yönde de aynı)
+  max_depth: 3
+  min_child_samples: 5000       # satırlar hasta içinde ilişkili olduğundan büyük tutulur (aşırı öğrenmeye karşı)
+  feature_fraction: 0.5
+  bagging_fraction: 0.5
+  lambda_l2: 10.0
+  max_bin: 63
+  max_rounds: 300
+  kontrol: 10                   # her 10 turda eğitim/doğrulama ölçülür (eğri noktası)
+  patience: 5                   # kontrol noktası sayısı
+  gap_limit: 0.05               # eğitim-doğrulama AUPRC farkı <= 0.05 olan noktalar arasından seç
+  train_eval_rows: 0            # 0 = seçimde eğitim AUPRC'si TÜM eğitim satırlarında (alt örnek ölçütü 3/5 koşuda yanılttı)
+  threads: 2
 train:
   device: cpu                  # cpu | cuda. Eski GRU sonuçları cpu ile üretildi; Colab'de colab.yaml'da cuda yapılır
 report:

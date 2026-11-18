@@ -117,3 +117,13 @@ def test_augmentations_apply_only_in_training_and_zero_keeps_results_identical()
         m, _ = train_model(lambda: GRUD(IDX, 8, 0.1), tr, va, {**base, "max_epochs": 2, "patience": 2, **extra}, 3, "cpu", deger, verbose=False)
         ps.append(predict(m, *va)[1])
     assert np.allclose(ps[0], ps[1], atol=1e-7)
+
+
+def test_coral_kaybi():
+    import torch
+    from sepsis.models.gru import coral_loss
+    g = torch.Generator().manual_seed(0)
+    a = torch.randn(500, 8, generator=g)
+    assert coral_loss(a, a).item() < 1e-10
+    assert coral_loss(a, a + 3.0).item() < 1e-10                        # yalnızca kovaryans: ortalama kayması etkilemez
+    assert coral_loss(a, 3.0 * a).item() > 1e-3

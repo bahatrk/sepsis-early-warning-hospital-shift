@@ -17,9 +17,31 @@ class CausalGRU(nn.Module):
                           dropout=dropout if layers > 1 else 0.0)        # bidirectional=False: gelecek yok
         self.drop = nn.Dropout(dropout); self.out = nn.Linear(hidden, 1)
 
-    def forward(self, x):
-        h, _ = self.gru(x)
+    def features(self, x):
+        """Gizli temsil (B, T, hidden): CORAL hizalaması bu katmanda yapılır."""
+        return self.gru(x)[0]
+
+    def head(self, h):
         return self.out(self.drop(h)).squeeze(-1)                         # (B, T) logit
+
+    def forward(self, x):
+        return self.head(self.features(x))
+
+
+def coral_loss(hs: torch.Tensor, ht: torch.Tensor) -> torch.Tensor:
+    """Deep CORAL (Sun & Saenko, ECCV 2016 çalıştayları): kaynak ve hedef gizli temsillerinin kovaryans farkının
+    Frobenius normunun karesi / (4 d^2). hs, ht: (n, d) satırlar (yalnızca gerçek saatler)."""
+    d = hs.shape[1]
+    def cov(h):
+        h = h - h.mean(0, keepdim=True); return h.T @ h / max(h.shape[0] - 1, 1)
+    return ((cov(hs) - cov(ht)) ** 2).sum() / (4 * d * d)
+
+
+def _rows(h, mask, n, gen):
+    """Maskeli (gerçek) saatlerden en fazla n satır (hesap maliyetini sınırlamak için rastgele alt örnek)."""
+    r = h[mask]
+    if r.shape[0] > n: r = r[torch.randperm(r.shape[0], generator=gen, device="cpu")[:n].to(r.device)]
+    return r
 
 def _batches(X_list, y_list, batch_size, shuffle, rng):
     order = np.arange(len(X_list))
@@ -57,7 +79,7 @@ def _acc_at(y, p, thr):
     tp, tn = (pred & y).sum(), (~pred & ~y).sum(); pos, neg = y.sum(), (~y).sum()
     return float((tp + tn) / len(y)), float(0.5 * (tp / max(pos, 1) + tn / max(neg, 1)))
 
-def train_model(make_model, train, val, cfg, seed, device="cpu", noise_idx=None, verbose=True, mask_idx=None):
+def train_model(make_model, train, val, cfg, seed, device="cpu", noise_idx=None, verbose=True, mask_idx=None, adapt=None):
     """Ortak eğitim döngüsü. make_model(): torch modülü üretir (tohum burada sabitlenir, model oluşturulmadan önce).
     train/val: (X_list, y_list). Döndürür: en iyi doğrulama AUPRC'li model, epoch geçmişi.
 
@@ -69,7 +91,10 @@ def train_model(make_model, train, val, cfg, seed, device="cpu", noise_idx=None,
     mask_drop (olasılık p, mask_idx sütunları verilmişse: yalnızca eğitimde her hasta için bu sütunlar p olasılıkla
     TÜM saatlerde sıfırlanır -- modelin hastaneye özgü ölçüm alışkanlığına bağımlılığını azaltmak için; varsayılan 0),
     gap_limit (varsa: eğitim-doğrulama AUPRC farkı bu sınırı aşan epoch'lar en iyi seçilmez; seçim yalnızca
-    doğrulama bilgisine dayanır)."""
+    doğrulama bilgisine dayanır),
+    coral (λ > 0 ve adapt = hedef hastanenin ETİKETSİZ adaptasyon dizileri verilmişse: her eğitim adımında aynı sayıda hedef
+    hasta rastgele çekilir, gizli temsiller arasında Deep CORAL kaybı λ ağırlıkla eklenir; hedef etiketi hiç kullanılmaz,
+    model seçimi yine yalnızca kaynak doğrulamasıyla yapılır)."""
     torch.manual_seed(seed); rng = np.random.default_rng(seed)
     model = make_model().to(device)
     ytr = np.concatenate(train[1]); pos_weight = torch.tensor((ytr == 0).sum() / max((ytr == 1).sum(), 1), dtype=torch.float32)
@@ -77,10 +102,14 @@ def train_model(make_model, train, val, cfg, seed, device="cpu", noise_idx=None,
     lossf = nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device), reduction="none")
     noise = float(cfg.get("noise_std", 0.0) or 0.0); scale = float(cfg.get("scale_std", 0.0) or 0.0); shift = float(cfg.get("shift_std", 0.0) or 0.0); gap_limit = cfg.get("gap_limit"); alarm = float(cfg.get("alarm_rate", 0.05))
     mdrop = float(cfg.get("mask_drop", 0.0) or 0.0)
+    lam = float(cfg.get("coral", 0.0) or 0.0); use_coral = lam > 0 and adapt is not None
+    if use_coral:
+        rng_t = np.random.default_rng(seed + 1000); gen = torch.Generator().manual_seed(seed + 1000)   # kaynak toplu iş sırası değişmesin
+        n_rows = int(cfg.get("coral_rows", 2048))
     best, best_state, wait, history, best_epoch = -1.0, None, 0, [], 0
     min_gap, gap_state, gap_epoch = float("inf"), None, 0                  # gap_limit hiçbir epoch'ta sağlanmazsa yedek
     for epoch in range(1, cfg["max_epochs"] + 1):
-        t0 = time.time(); model.train(); total, count = 0.0, 0
+        t0 = time.time(); model.train(); total, count = 0.0, 0; ctot, cn = 0.0, 0
         for _, X, y, mask in _batches(train[0], train[1], cfg["batch_size"], True, rng):
             X, y, mask = X.to(device), y.to(device), mask.to(device)
             if (noise > 0 or scale > 0 or shift > 0) and noise_idx is not None:   # veri artırma: yalnızca eğitimde
@@ -93,7 +122,15 @@ def train_model(make_model, train, val, cfg, seed, device="cpu", noise_idx=None,
                 drop = (torch.rand(X.shape[0], 1, 1, device=X.device) < mdrop).float()
                 X = X.clone(); X[..., mask_idx] = X[..., mask_idx] * (1 - drop)
             opt.zero_grad()
-            loss = (lossf(model(X), y) * mask).sum() / mask.sum()
+            if use_coral:
+                h = model.features(X); loss = (lossf(model.head(h), y) * mask).sum() / mask.sum()
+                tj = rng_t.choice(len(adapt), size=min(X.shape[0], len(adapt)), replace=False)
+                Xt, _, mt = collate([adapt[j] for j in tj], [np.zeros(len(adapt[j]), dtype=np.float32) for j in tj])
+                ht = model.features(Xt.to(device))
+                cl = coral_loss(_rows(h, mask, n_rows, gen), _rows(ht, mt.to(device), n_rows, gen))
+                loss = loss + lam * cl; ctot += cl.item(); cn += 1
+            else:
+                loss = (lossf(model(X), y) * mask).sum() / mask.sum()
             loss.backward(); nn.utils.clip_grad_norm_(model.parameters(), 1.0); opt.step()
             total += loss.item() * mask.sum().item(); count += mask.sum().item()
         (ytr_, ptr_, ltr), (yv, pv, lv) = (predict_with_loss(model, *train, device=device, pos_weight=pos_weight),
@@ -104,7 +141,7 @@ def train_model(make_model, train, val, cfg, seed, device="cpu", noise_idx=None,
         history.append({"epoch": epoch, "train_loss": total / count, "train_loss_eval": ltr, "val_loss": lv,
                         "train_auprc": tr_auprc, "val_auprc": v_auprc, "train_auroc": tr_auroc, "val_auroc": v_auroc,
                         "train_acc": tr_acc, "val_acc": v_acc, "train_bacc": tr_bacc, "val_bacc": v_bacc, "esik": thr,
-                        "sure_sn": time.time() - t0})
+                        "sure_sn": time.time() - t0, **({"coral_kaybi": ctot / max(cn, 1)} if use_coral else {})})
         if verbose:
             print(f"epoch {epoch:2d} | kayıp {total/count:.4f} (eğitim) {lv:.4f} (doğr.) | AUPRC {tr_auprc:.4f} / {v_auprc:.4f} | AUROC {tr_auroc:.3f} / {v_auroc:.3f} | {time.time() - t0:.0f} sn")
         gap = tr_auprc - v_auprc

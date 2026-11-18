@@ -14,7 +14,7 @@ def test_train_script_produces_all_outputs(raw_dir, tmp_path):
     env = {**os.environ, "SEPSIS_CONFIG": str(tmp_path / "cfg.yaml"), "PYTHONPATH": str(ROOT / "src")}
     run = lambda *a: subprocess.run([sys.executable, *a], cwd=ROOT, env=env, check=True, capture_output=True, text=True)
     run("scripts/01_make_split.py"); run("scripts/02_preprocess.py", "A->B")
-    for model in ("grud", "gru_ozelliksiz", "gru_maskdrop"):
+    for model in ("grud", "gru_ozelliksiz", "gru_maskdrop", "gru_coral"):
         run("scripts/06_train_model.py", "A->B", "--model", model, "--seed", "0")
         d = tmp_path / "res" / "modeller" / f"{model}_A_B_seed0"
         for f in ["sonuc.json", "tablo.md", "kesisim.md", "egriler.png", "roc_pr.png", "karisiklik_kaynak_ici_test.png",
@@ -73,3 +73,57 @@ def test_hedef_norm_degistirir_yalniz_hedefi(raw_dir, tmp_path):
         j = names.index(c); assert np.array_equal(xa[:, j], xb[:, j])
     # adaptasyon kümesinde hedef istatistiğiyle standartlaştırılan ölçülen değişkenin ortalaması ~0 (kırpma/ffill payı)
     j = names.index("HR"); assert abs(np.load(b / "adaptasyon.npz")["X"][:, j].mean()) < 0.15
+
+
+def test_gbm_modelleri_ve_pencere_ozellikleri(raw_dir, tmp_path):
+    import numpy as np
+    cfg = yaml.safe_load(open(ROOT / "configs/default.yaml", encoding="utf-8"))
+    cfg["paths"].update(raw_dir=raw_dir, split_csv=str(tmp_path / "bolme.csv"), processed_dir=str(tmp_path / "proc"),
+                        artifacts_dir=str(tmp_path / "art"), results_dir=str(tmp_path / "res"))
+    cfg["gbm"].update(max_rounds=20, kontrol=10, patience=2, min_child_samples=5, threads=1)
+    (tmp_path / "cfg.yaml").write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    env = {**os.environ, "SEPSIS_CONFIG": str(tmp_path / "cfg.yaml"), "PYTHONPATH": str(ROOT / "src")}
+    run = lambda *a: subprocess.run([sys.executable, *a], cwd=ROOT, env=env, check=True, capture_output=True, text=True)
+    run("scripts/01_make_split.py"); run("scripts/02_preprocess.py", "A->B")
+    boy = {}
+    for m in ("gbm", "gbm_davranissiz"):
+        run("scripts/06_train_model.py", "A->B", "--model", m, "--seed", "0")
+        o = tmp_path / "res" / "modeller" / f"{m}_A_B_seed0"
+        for f in ["sonuc.json", "egriler.png", "roc_pr.png", "karisiklik_hedef_test.png", "rapor_hedef_test.md", "tablo.md", "kesisim.md",
+                  "rapor_hedef_test_uyarlanmis_esik.md", "rapor_kalibrasyon.md", "skorlar.npz"]:
+            assert (o / f).exists(), (m, f)
+        boy[m] = json.load(open(o / "sonuc.json"))["n_ozellik"]
+    assert boy["gbm"] == boy["gbm_davranissiz"] + 102 and boy["gbm_davranissiz"] == 176
+
+
+def test_pencere_ozellikleri_nedensel_ve_hasta_sinirina_saygili():
+    import numpy as np
+    from sepsis.data.preprocess import feature_names
+    from sepsis.models.gbm import build_features
+    names = feature_names(True); rng = np.random.default_rng(0)
+    n1, n2 = 9, 7; X = rng.normal(size=(n1 + n2, len(names))).astype(np.float32); saat = np.r_[np.arange(n1), np.arange(n2)]
+    F, adlar = build_features(X, saat, names, True)
+    i = adlar.index("HR__ort6"); j = adlar.index("HR"); col = X[:, j]
+    assert np.isclose(F[n1 + 2, i], col[n1:n1 + 3].mean())            # 2. hasta: yalnızca kendi 3 saati (hasta sınırı aşılmaz)
+    assert np.isclose(F[8, i], col[3:9].mean())                        # tam 6 saatlik pencere
+    assert np.isclose(F[8, adlar.index("HR__delta6")], col[8] - col[2])
+    X2 = X.copy(); X2[8:, :] += 100                                    # gelecek değişirse (saat 8 ve sonrası) önceki saatlerin öznitelikleri değişmemeli
+    F2, _ = build_features(X2, saat, names, True); assert np.allclose(F[:8], F2[:8])
+
+
+def test_gbm_sweep_yalniz_egitim_ve_dogrulama(raw_dir, tmp_path):
+    cfg = yaml.safe_load(open(ROOT / "configs/default.yaml", encoding="utf-8"))
+    cfg["paths"].update(raw_dir=raw_dir, split_csv=str(tmp_path / "bolme.csv"), processed_dir=str(tmp_path / "proc"),
+                        artifacts_dir=str(tmp_path / "art"), results_dir=str(tmp_path / "res"))
+    cfg["gbm"].update(threads=1)
+    (tmp_path / "cfg.yaml").write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    env = {**os.environ, "SEPSIS_CONFIG": str(tmp_path / "cfg.yaml"), "PYTHONPATH": str(ROOT / "src")}
+    run = lambda *a: subprocess.run([sys.executable, *a], cwd=ROOT, env=env, check=True, capture_output=True, text=True)
+    run("scripts/01_make_split.py"); run("scripts/02_preprocess.py", "A->B")
+    for f in ("kaynak_ici_test", "hedef_test", "adaptasyon"):
+        p = tmp_path / "proc" / "A_B" / f"{f}.npz"
+        if p.exists(): p.unlink()
+    run("scripts/09_gbm_sweep.py", "--yonler", "A->B", "--num-leaves", "4", "--min-child", "5", "50", "--lambda-l2", "10",
+        "--max-rounds", "20", "--kontrol", "10")
+    r = json.load(open(tmp_path / "res" / "tarama" / "gbm_A_B.json", encoding="utf-8"))
+    assert len(r["satirlar"]) == 2 and "secilen" in r and (tmp_path / "res" / "tarama" / "gbm_A_B.md").exists()
