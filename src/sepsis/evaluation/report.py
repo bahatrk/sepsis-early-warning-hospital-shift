@@ -78,21 +78,28 @@ def intersection_report(split: pd.DataFrame, direction: str) -> tuple[str, int]:
     satir += ["", f"**Toplam kesişen hasta: {toplam}** " + ("(sızıntı yok)" if toplam == 0 else "(SIZINTI VAR)"), ""]
     return "\n".join(satir), toplam
 
-def plot_training_curves(history: list, path: str, baslik: str) -> None:
+def plot_training_curves(history: list, path: str, baslik: str, secilen: int | None = None, x_ad: str = "Epoch",
+                         kayip_ad: str = "Kayıp (ağırlıklı BCE)") -> None:
     """Eğitim ve doğrulama eğrileri AYNI grafikte: kayıp, accuracy ve dengeli accuracy (doğrulama eşiğinde), AUROC, AUPRC;
-    altı panel: eğitim−doğrulama AUPRC farkı (aşırı öğrenme ölçütü, kesik çizgi = 0,05)."""
+    altı panel: eğitim−doğrulama AUPRC farkı (aşırı öğrenme ölçütü, kesik çizgi = 0,05).
+    secilen: modelin seçildiği epoch/tur (dikey gri çizgi). GBM için x_ad="Ağaç turu", kayip_ad="Kayıp (log loss)"."""
     ep = [h["epoch"] for h in history]
     fig, ax = plt.subplots(2, 3, figsize=(14, 7))
-    pan = [("Kayıp (ağırlıklı BCE)", "train_loss_eval", "val_loss"), ("Accuracy (doğrulama eşiğinde)", "train_acc", "val_acc"),
+    pan = [(kayip_ad, "train_loss_eval", "val_loss"), ("Accuracy (doğrulama eşiğinde)", "train_acc", "val_acc"),
            ("Dengeli accuracy (doğrulama eşiğinde)", "train_bacc", "val_bacc"), ("AUROC", "train_auroc", "val_auroc"),
            ("AUPRC", "train_auprc", "val_auprc")]
     for a, (ad, tr, va) in zip(ax.ravel(), pan):
         if tr not in history[0]: a.set_visible(False); continue
         a.plot(ep, [h[tr] for h in history], "o-", label="eğitim"); a.plot(ep, [h[va] for h in history], "s-", label="doğrulama")
-        a.set_xlabel("Epoch"); a.set_ylabel(ad); a.grid(alpha=0.3); a.legend(); a.xaxis.set_major_locator(MaxNLocator(integer=True))
-    a = ax.ravel()[5]; a.plot(ep, [h["train_auprc"] - h["val_auprc"] for h in history], "d-", color="tab:red")
-    a.axhline(0.05, color="k", ls="--", lw=0.8); a.set_xlabel("Epoch"); a.set_ylabel("Eğitim − doğrulama AUPRC"); a.grid(alpha=0.3)
+        a.set_xlabel(x_ad); a.set_ylabel(ad); a.grid(alpha=0.3); a.xaxis.set_major_locator(MaxNLocator(integer=True))
+    a = ax.ravel()[5]; a.plot(ep, [h["train_auprc"] - h["val_auprc"] for h in history], "d-", color="tab:red", label="fark")
+    a.axhline(0.05, color="k", ls="--", lw=0.8, label="ölçüt 0,05"); a.set_xlabel(x_ad); a.set_ylabel("Eğitim − doğrulama AUPRC"); a.grid(alpha=0.3)
     a.xaxis.set_major_locator(MaxNLocator(integer=True))
+    if secilen is not None:
+        for a in ax.ravel():
+            if a.get_visible(): a.axvline(secilen, color="0.5", ls=":", lw=1.2, label=f"seçilen ({secilen})")
+    for a in ax.ravel():
+        if a.get_visible(): a.legend(fontsize=8)
     fig.suptitle(baslik); plt.tight_layout(); plt.savefig(path, dpi=150); plt.close(fig)
 
 def plot_roc_pr(sets: dict, path: str, baslik: str) -> None:

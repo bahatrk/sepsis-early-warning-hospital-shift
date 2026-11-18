@@ -51,6 +51,13 @@ gbm:                           # LightGBM (scripts/06 --model gbm | gbm_davranis
   gap_limit: 0.05               # eğitim-doğrulama AUPRC farkı <= 0.05 olan noktalar arasından seç
   train_eval_rows: 0            # 0 = seçimde eğitim AUPRC'si TÜM eğitim satırlarında (alt örnek ölçütü 3/5 koşuda yanılttı)
   threads: 2
+sk:                            # sklearn baseline'ları (lr, rf, et, mlp); ızgaralar models/sk_baselines.py'de, seçim yalnızca eğitim/doğrulama
+  gap_limit: 0.05
+  n_estimators: 100             # rf, et
+  max_samples: 0.2              # rf, et: her ağaç eğitim satırlarının %20'si (hız + düzenlileştirme)
+  lr_max_iter: 300
+  mlp_max_iter: 10              # ilk denemede 30 epoch hastaları ezberledi (eğitim AUPRC 0,75+)
+  threads: 2
 train:
   device: cpu                  # cpu | cuda. Eski GRU sonuçları cpu ile üretildi; Colab'de colab.yaml'da cuda yapılır
 report:

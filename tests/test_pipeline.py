@@ -127,3 +127,35 @@ def test_gbm_sweep_yalniz_egitim_ve_dogrulama(raw_dir, tmp_path):
         "--max-rounds", "20", "--kontrol", "10")
     r = json.load(open(tmp_path / "res" / "tarama" / "gbm_A_B.json", encoding="utf-8"))
     assert len(r["satirlar"]) == 2 and "secilen" in r and (tmp_path / "res" / "tarama" / "gbm_A_B.md").exists()
+
+
+def test_sk_baselinelari_ve_onem_agirliklandirma(raw_dir, tmp_path):
+    cfg = yaml.safe_load(open(ROOT / "configs/default.yaml", encoding="utf-8"))
+    cfg["paths"].update(raw_dir=raw_dir, split_csv=str(tmp_path / "bolme.csv"), processed_dir=str(tmp_path / "proc"),
+                        artifacts_dir=str(tmp_path / "art"), results_dir=str(tmp_path / "res"))
+    cfg["gbm"].update(max_rounds=20, kontrol=10, patience=2, min_child_samples=5, threads=1)
+    cfg["sk"].update(n_estimators=5, mlp_max_iter=3, lr_max_iter=50, threads=1)
+    (tmp_path / "cfg.yaml").write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    env = {**os.environ, "SEPSIS_CONFIG": str(tmp_path / "cfg.yaml"), "PYTHONPATH": str(ROOT / "src")}
+    run = lambda *a: subprocess.run([sys.executable, *a], cwd=ROOT, env=env, check=True, capture_output=True, text=True)
+    run("scripts/01_make_split.py"); run("scripts/02_preprocess.py", "A->B")
+    for m in ("lr", "rf", "et", "mlp", "gbm_davranissiz_iw"):
+        run("scripts/06_train_model.py", "A->B", "--model", m, "--seed", "0")
+        o = tmp_path / "res" / "modeller" / f"{m}_A_B_seed0"
+        for f in ["sonuc.json", "egriler.png", "roc_pr.png", "rapor_hedef_test.md", "tablo.md", "kesisim.md", "skorlar.npz"]:
+            assert (o / f).exists(), (m, f)
+        r = json.load(open(o / "sonuc.json"))
+        if m == "gbm_davranissiz_iw":
+            t = r["onem_agirliklandirma"]; assert 0.0 <= t["alan_auroc"] <= 1.0 and 0.0 < t["etkin_orneklem_orani"] <= 1.0
+        else:
+            assert "secilen_ayar" in r and r["n_ozellik"] == 278
+
+
+def test_onem_agirliklari_kayma_yonunde():
+    import numpy as np
+    from sepsis.models.gbm import importance_weights
+    rng = np.random.default_rng(0)
+    Fs = rng.normal(0, 1, (6000, 3)).astype(np.float32); Ft = rng.normal(0.8, 1, (3000, 3)).astype(np.float32)
+    w, t = importance_weights(Fs, Ft, 0, threads=1)
+    assert abs(w.mean() - 1) < 1e-5 and t["alan_auroc"] > 0.6
+    assert w[Fs[:, 0] > 1].mean() > w[Fs[:, 0] < -1].mean()            # hedefe benzeyen kaynak satırlar daha ağır
