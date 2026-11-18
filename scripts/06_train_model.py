@@ -9,6 +9,8 @@ Modeller:
   gru_coral      gru + Deep CORAL: hedefin ETİKETSİZ adaptasyon dizileriyle gizli temsil kovaryans hizalaması (λ = cfg gru.coral)
   gbm            LightGBM + zengin nedensel pencere öznitelikleri (gözlendi/ölçüm sıklığı DAHİL) -- ağaç tabanlı baseline
   gbm_davranissiz LightGBM, yalnızca değer ve pencere öznitelikleri (eksiklik göstergeleri/ölçüm sıklığı ÇIKARILMIŞ)
+  gbm_davranissiz_iw  gbm_davranissiz + önem ağırlıklandırma (hedefin ETİKETSİZ adaptasyon verisiyle alan sınıflayıcısı)
+  lr, rf, et, mlp sklearn baseline'ları, gbm ile aynı öznitelikler (davranış DAHİL); küçük düzenlileştirme ızgarası, 0,05 ölçütü
 
 Kullanım:  python scripts/06_train_model.py "A->B" --model grud --seed 0 [--device cuda]
 Çıktılar:  results/modeller/<model>_<yon>_seed<s>/  (sonuc.json, egriler.png, roc_pr.png, karisiklik_*.png,
@@ -24,7 +26,7 @@ from sepsis.evaluation import calibration as C
 from sepsis.models.gru import CausalGRU, train_model, predict
 from sepsis.models.grud import GRUD, grud_indices
 
-MODELLER = ["gru", "gru_ozelliksiz", "gru_maskdrop", "gru_coral", "grud", "grud_decaysiz", "gbm", "gbm_davranissiz"]
+MODELLER = ["gru", "gru_ozelliksiz", "gru_maskdrop", "gru_coral", "grud", "grud_decaysiz", "gbm", "gbm_davranissiz", "gbm_davranissiz_iw", "lr", "rf", "et", "mlp"]
 KUMELER = ["egitim", "dogrulama", "kaynak_ici_test", "hedef_test"]
 
 ap = argparse.ArgumentParser(); ap.add_argument("direction", choices=["A->B", "B->A"])
@@ -37,8 +39,9 @@ device = args.device or cfg.get("train", {}).get("device", "cpu")
 if device == "cuda" and not torch.cuda.is_available():
     print("UYARI: cuda yok, cpu kullanılıyor."); device = "cpu"
 alarm = float(cfg.get("report", {}).get("alarm_rate", 0.05))
-GBM = args.model.startswith("gbm")
-H = dict(cfg["gbm"] if GBM else cfg["grud"] if args.model.startswith("grud") else cfg["gru"]); H["alarm_rate"] = alarm
+SK = args.model in ("lr", "rf", "et", "mlp")
+GBM = args.model.startswith("gbm") or SK
+H = dict(cfg["sk"] if SK else cfg["gbm"] if GBM else cfg["grud"] if args.model.startswith("grud") else cfg["gru"]); H["alarm_rate"] = alarm
 if args.model == "gru_maskdrop": H["mask_drop"] = args.mask_drop
 if device == "cpu": torch.set_num_threads(H.get("threads", os.cpu_count() or 1))
 
@@ -56,13 +59,24 @@ if GBM:
     raw = {k: np.load(f"{D}/{k}.npz") for k in KUMELER + (["adaptasyon"] if os.path.exists(adapt_path) else [])}
     feats, ys = {}, {}
     for k, z in raw.items():
-        feats[k], fnames = G.build_features(z["X"], z["saat"], names, davranis=(args.model == "gbm")); ys[k] = z["y"].astype(np.int8)
+        feats[k], fnames = G.build_features(z["X"], z["saat"], names, davranis=(args.model == "gbm" or SK)); ys[k] = z["y"].astype(np.int8)
     n_features, keep = feats["egitim"].shape[1], None
     print(f"[{args.model}] {args.direction} seed {args.seed} | öznitelik {n_features}", flush=True)
-    model, hist = G.train_gbm(feats["egitim"], ys["egitim"], feats["dogrulama"], ys["dogrulama"], H, args.seed)
-    model.best_epoch = model.best_it
-    preds = {k: (ys[k], model.predict(feats[k], num_iteration=model.best_it)) for k in KUMELER}
-    pa = model.predict(feats["adaptasyon"], num_iteration=model.best_it) if "adaptasyon" in feats else None
+    iw_tani = None
+    if SK:
+        from sepsis.models.sk_baselines import train_sk
+        model, hist = train_sk(args.model, feats["egitim"], ys["egitim"], feats["dogrulama"], ys["dogrulama"], H, args.seed)
+        tahmin = model.predict
+    else:
+        w = None
+        if args.model == "gbm_davranissiz_iw":                         # yalnızca kaynak eğitim girdileri + hedefin etiketsiz adaptasyon girdileri
+            w, iw_tani = G.importance_weights(feats["egitim"], feats["adaptasyon"], args.seed, threads=H.get("threads", 2))
+            print(f"[iw] alan AUROC {iw_tani['alan_auroc']:.3f} | etkin örneklem oranı {iw_tani['etkin_orneklem_orani']:.3f}", flush=True)
+        model, hist = G.train_gbm(feats["egitim"], ys["egitim"], feats["dogrulama"], ys["dogrulama"], H, args.seed, weight=w)
+        model.best_epoch = model.best_it
+        tahmin = lambda F: model.predict(F, num_iteration=model.best_it)
+    preds = {k: (ys[k], tahmin(feats[k])) for k in KUMELER}
+    pa = tahmin(feats["adaptasyon"]) if "adaptasyon" in feats else None
 else:
     seqs = {k: load_sequences(f"{D}/{k}.npz") for k in KUMELER}
 
@@ -123,6 +137,8 @@ if cmp_adapt is not None:
     open(f"{out}/rapor_hedef_test_uyarlanmis_esik.md", "w", encoding="utf-8").write(
         R.report_markdown(rep_a, f"Hedef test, uyarlanmış eşik ({args.model}, {args.direction})", alarm, esik_kaynagi="adaptasyon") + "\n" + R.adaptation_markdown(cmp_adapt, alarm))
     R.plot_confusion(rep_a, f"{out}/karisiklik_hedef_test_uyarlanmis_esik.png", f"Hedef test | {args.model} {args.direction} | uyarlanmış eşik (%{100*alarm:.0f} alarm)")
+if GBM and iw_tani is not None: res["onem_agirliklandirma"] = iw_tani
+if SK: res["secilen_ayar"] = model.ayar
 if cal is not None:
     res["kalibrasyon"] = cal
     open(f"{out}/rapor_kalibrasyon.md", "w", encoding="utf-8").write(C.calibration_markdown(cal))
@@ -135,11 +151,13 @@ open(f"{out}/tablo.md", "w", encoding="utf-8").write(
     f"Eşik: doğrulama saatlerinin %{100*alarm:.0f}'i alarm.\n\n{tablo_md}\n")
 
 R.plot_training_curves(hist, f"{out}/egriler.png", f"{args.model} | {args.direction} | seed {args.seed}", secilen=int(model.best_epoch),
-                       **({"x_ad": "Ağaç turu", "kayip_ad": "Kayıp (log loss)"} if GBM else {}))
+                       **({"x_ad": "Izgara adayı (düzenlileştirme azalır →)", "kayip_ad": "Kayıp (log loss)"} if SK else {"x_ad": "Ağaç turu", "kayip_ad": "Kayıp (log loss)"} if GBM else {}))
 R.plot_roc_pr({k: preds[k] for k in ["dogrulama", "kaynak_ici_test", "hedef_test"]}, f"{out}/roc_pr.png", f"{args.model} | {args.direction} | seed {args.seed}")
 
 md = f"{cfg['paths']['artifacts_dir']}/{args.model}/{slug}"; os.makedirs(md, exist_ok=True)
-if GBM:
+if SK:
+    import joblib; joblib.dump(model.m, f"{md}/seed{args.seed}.joblib", compress=3)
+elif GBM:
     model.save_model(f"{md}/seed{args.seed}.txt")
 else:
     torch.save({"state_dict": model.state_dict(), "n_features": n_features, "keep": keep, "idx": idx, "cfg": H, "esik": thr,

@@ -52,7 +52,7 @@ def build_features(X: np.ndarray, saat: np.ndarray, names: list[str], davranis: 
     return F, names_out
 
 
-def train_gbm(Ftr, ytr, Fva, yva, cfg: dict, seed: int, verbose: bool = True):
+def train_gbm(Ftr, ytr, Fva, yva, cfg: dict, seed: int, verbose: bool = True, weight=None):
     """LightGBM'i max_rounds tur eğitir; her `kontrol` turda (eğitim alt örneği, doğrulama) AUPRC/AUROC/kayıp/accuracy kaydeder.
     Seçim: eğitim−doğrulama AUPRC farkı <= gap_limit olan kontrol noktaları arasında en yüksek doğrulama AUPRC
     (hiçbiri sağlanmazsa en küçük farklı nokta); patience kontrol noktası iyileşme olmazsa durur. Yalnızca eğitim ve doğrulama kullanılır."""
@@ -64,7 +64,7 @@ def train_gbm(Ftr, ytr, Fva, yva, cfg: dict, seed: int, verbose: bool = True):
                   min_child_samples=cfg["min_child_samples"], feature_fraction=cfg["feature_fraction"], bagging_fraction=cfg["bagging_fraction"],
                   bagging_freq=1, lambda_l2=cfg["lambda_l2"], max_bin=cfg.get("max_bin", 63), seed=seed, n_jobs=cfg.get("threads", 2), verbose=-1,
                   deterministic=True, force_row_wise=True)
-    booster = lgb.train(params, lgb.Dataset(Ftr, label=ytr), num_boost_round=cfg["max_rounds"])
+    booster = lgb.train(params, lgb.Dataset(Ftr, label=ytr, weight=weight), num_boost_round=cfg["max_rounds"])
     alarm = cfg.get("alarm_rate", 0.05); gap_limit = cfg.get("gap_limit"); step = cfg["kontrol"]
     hist, best, best_it, min_gap, gap_it, wait = [], -1.0, None, 9.0, None, 0
     for k, it in enumerate(range(step, cfg["max_rounds"] + 1, step), 1):
@@ -86,3 +86,31 @@ def train_gbm(Ftr, ytr, Fva, yva, cfg: dict, seed: int, verbose: bool = True):
         if verbose: print(f"UYARI: gap_limit={gap_limit} sağlanmadı; en küçük farklı nokta ({gap_it}) seçildi.")
     booster.best_it = best_it
     return booster, hist
+
+
+def importance_weights(Fs, Ft, seed: int, clip=(0.1, 10.0), n_folds: int = 2, threads: int = 2):
+    """Önem ağırlıklandırma (kovaryat kayması; Shimodaira 2000, Sugiyama vd. 2007): w(x) = p_hedef(x) / p_kaynak(x).
+    Bir alan sınıflayıcısı (LightGBM, küçük) kaynak EĞİTİM satırlarını (0) hedefin ETİKETSİZ adaptasyon satırlarından (1) ayırt eder;
+    w = [P(1|x) / P(0|x)] * (n_kaynak / n_hedef). Çapraz uydurma: her kaynak satırının ağırlığı, o satırı görmemiş katlamadaki
+    sınıflayıcıdan gelir (aynı satırda uydurup tahmin etmek ağırlıkları şişirir). Ağırlıklar ÖNCEDEN BELİRLENMİŞ [0.1, 10]
+    aralığına kırpılır ve ortalaması 1'e ölçeklenir. Hedef etiketi kullanılmaz.
+    Döndürür: (w, tanı) -- tanı: alan sınıflayıcısının çapraz-uydurma AUROC'u ve etkin örnek oranı (ESS / n)."""
+    import lightgbm as lgb
+    from sklearn.metrics import roc_auc_score
+    rng = np.random.default_rng(seed + 7)
+    fs, ft = rng.integers(0, n_folds, len(Fs)), rng.integers(0, n_folds, len(Ft))
+    ps, pt = np.zeros(len(Fs)), np.zeros(len(Ft))
+    params = dict(objective="binary", learning_rate=0.1, num_leaves=15, min_child_samples=1000, feature_fraction=0.5,
+                  bagging_fraction=0.5, bagging_freq=1, lambda_l2=10.0, max_bin=63, seed=seed, n_jobs=threads, verbose=-1,
+                  deterministic=True, force_row_wise=True)
+    for k in range(n_folds):
+        Xf = np.vstack([Fs[fs != k], Ft[ft != k]]); yf = np.r_[np.zeros((fs != k).sum()), np.ones((ft != k).sum())]
+        b = lgb.train(params, lgb.Dataset(Xf, label=yf), num_boost_round=100)
+        ps[fs == k] = b.predict(Fs[fs == k]); pt[ft == k] = b.predict(Ft[ft == k])
+    auc = float(roc_auc_score(np.r_[np.zeros(len(ps)), np.ones(len(pt))], np.r_[ps, pt]))
+    ps = np.clip(ps, 1e-6, 1 - 1e-6)
+    w = ps / (1 - ps) * (len(Fs) / len(Ft))
+    w = np.clip(w, *clip); w = w / w.mean()
+    ess = float(w.sum() ** 2 / (w ** 2).sum() / len(w))
+    return w.astype(np.float32), {"alan_auroc": auc, "etkin_orneklem_orani": ess, "kirpilan_oran": float(np.mean((w <= w.min() + 1e-9) | (w >= w.max() - 1e-9))),
+                                  "w_min": float(w.min()), "w_maks": float(w.max())}
