@@ -134,7 +134,8 @@ open(f"{out}/tablo.md", "w", encoding="utf-8").write(
     f"## {args.model} | {args.direction} | seed {args.seed}\n\nEn iyi epoch: {model.best_epoch} (seçim: doğrulama AUPRC). "
     f"Eşik: doğrulama saatlerinin %{100*alarm:.0f}'i alarm.\n\n{tablo_md}\n")
 
-R.plot_training_curves(hist, f"{out}/egriler.png", f"{args.model} | {args.direction} | seed {args.seed}")
+R.plot_training_curves(hist, f"{out}/egriler.png", f"{args.model} | {args.direction} | seed {args.seed}", secilen=int(model.best_epoch),
+                       **({"x_ad": "Ağaç turu", "kayip_ad": "Kayıp (log loss)"} if GBM else {}))
 R.plot_roc_pr({k: preds[k] for k in ["dogrulama", "kaynak_ici_test", "hedef_test"]}, f"{out}/roc_pr.png", f"{args.model} | {args.direction} | seed {args.seed}")
 
 md = f"{cfg['paths']['artifacts_dir']}/{args.model}/{slug}"; os.makedirs(md, exist_ok=True)
