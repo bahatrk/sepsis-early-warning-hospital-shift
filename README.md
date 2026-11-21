@@ -45,6 +45,11 @@ make test                     # birim testleri (gerçek veri gerekmez)
 | `gru_maskdrop` | baz GRU + eğitimde eksiklik göstergelerini hasta bazında %50 olasılıkla sıfırlama (deneysel; yalnızca eğitimde) |
 | `grud` | **önerilen model**: GRU-D tarzı eksiklik farkındalıklı kodlayıcı (girdi + gizli durum çürümesi) |
 | `grud_decaysiz` | `grud`'un çürüme mekanizmaları kapalı hali |
+| `gru_coral` | baz GRU + Deep CORAL: hedefin etiketsiz adaptasyon verisiyle gizli temsil hizalama (λ = `gru.coral`) |
+| `gbm` | LightGBM + 6 saatlik nedensel pencere öznitelikleri (278; eksiklik ve ölçüm sıklığı dahil) |
+| `gbm_davranissiz` | LightGBM, ölçüm davranışı sütunları çıkarılmış (176 öznitelik); hedef hastanede en iyi sonuç |
+| `gbm_davranissiz_iw` | `gbm_davranissiz` + önem ağırlıklandırma (alan sınıflayıcısı, hedefin etiketsiz verisi) |
+| `lr`, `rf`, `et`, `mlp` | sklearn baseline'ları, `gbm` ile aynı öznitelikler; küçük düzenlileştirme ızgarası, 0,05 ölçütü |
 
 Baz GRU eksiklik göstergelerini düz öznitelik olarak zaten görür; `grud`'un farkı eksikliğin modelin içinde kullanılma biçimidir.
 Her çalıştırma `results/modeller/<model>_<yon>_seed<s>/` içine eğitim/doğrulama eğrilerini (kayıp, accuracy, AUROC, AUPRC; aynı grafikte),
@@ -53,7 +58,13 @@ arası kesişim kontrolünü yazar. Sınıflandırma eşiği yalnızca doğrulam
 Varsayılan cihaz CPU'dur (`train.device`); GPU için config'de `cuda` yapın.
 
 `scripts/08_regularization_sweep.py` aşırı öğrenmeyi azaltmak için dropout, weight decay, `gap_limit` ve gürültü ayarlarını **yalnızca doğrulama kümesinde** tarar
-(test kümeleri yüklenmez); sonuçlar `results/tarama/` içine yazılır.
+(test kümeleri yüklenmez); sonuçlar `results/tarama/` içine yazılır. `scripts/09_gbm_sweep.py` aynısını LightGBM için yapar.
+
+Diğer araçlar:
+- `scripts/02_preprocess.py <yön> --hedef-norm adaptasyon`: hedef hastaneyi kendi etiketsiz adaptasyon istatistikleriyle standartlaştıran deney kolu (ayrı `processed_dir` ile) ve `kayma_tanisi.md`.
+- Her koşu `rapor_kalibrasyon.md` (Platt + EM öncül düzeltmesi; ECE, Brier), `rapor_hedef_test_uyarlanmis_esik.md` (etiketsiz eşik uyarlaması) ve `skorlar.npz` (bootstrap/eşleştirilmiş testler için ham skorlar) yazar.
+- `scripts/07_model_seeds.py --models ... --seeds 0 1 2 3 4`: çok tohumlu koşu ve `ozet.md` (ortalama ± std, aşırı öğrenme ihlal sayısı).
+- Colab: `Sepsis_Colab_v2.ipynb` (bölümler 1–23; GPU yalnızca GRU ailesi için gerekir).
 
 ## Sızıntı ve aşırı öğrenme kontrolleri
 
